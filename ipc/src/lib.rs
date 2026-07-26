@@ -28,6 +28,8 @@ pub enum IpcRequest {
     GetTemperatures,
 
     /// Get the current battery charge limit
+    GetChargeStatus,
+    /// TODO: LEGACY api for reading charge limit
     GetChargeLimit,
 
     /// Get the current power profile
@@ -49,6 +51,8 @@ pub enum IpcRequest {
     SetKeyboardBacklight(KeyboardBacklightLevel),
 
     /// Set battery charge threshold
+    SetChargeIntent(ChargeIntent),
+    /// TODO: LEGACY api for changing charge
     SetChargeLimit(ChargeLimit),
 
     /// Control the LED Ring
@@ -56,6 +60,8 @@ pub enum IpcRequest {
 
     /// Send a command to the daemon
     DaemonCommand(DaemonCommand),
+
+    GetCapabilities,
 }
 
 
@@ -82,6 +88,8 @@ pub enum IpcResponse {
 
     /// Current power profile
     PowerLimit(PowerProfile),
+    /// TODO:
+    ChargeStatus(ChargeStatus),
 
     /// Response from the daemon
     DaemonResponse(DaemonResponse),
@@ -91,6 +99,14 @@ pub enum IpcResponse {
 
     /// Error message if something went wrong
     Error(String),
+
+    /// Message about regarding the lack of hardware support
+    Unsupported(UnsupportedInfo),
+
+    ///
+    Capabilities(Box<Capabilities>),
+    /// Feature exists but preconditions are unmet. Text goes into a GUI tooltip.
+    Precondition(String),
 }
 
 pub struct IpcConnection {

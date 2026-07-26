@@ -74,13 +74,14 @@ pub enum FanMode {
 }
 
 /// Identifies the specific fan
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Hash)]
 pub enum FanIndex {
     Cpu = 0x4B,
     Gpu = 0x4D,
 }
 
 /// Represents battery charge limit profiles (FlexiCharger)
+/// todo: legacy, remove prob
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum ChargeLimit {
     FullCapacity,       // 100%
@@ -88,7 +89,6 @@ pub enum ChargeLimit {
     Balanced,           // 80%
     MaximumLifespan,    // 60%
     DeskMode,           // 40%
-    // Custom(u8),  // TODO: too dangerous, I think?
 }
 impl ChargeLimit {
     pub fn as_percent(&self) -> (u8, u8) {
@@ -98,11 +98,10 @@ impl ChargeLimit {
             ChargeLimit::Balanced => (70, 80),
             ChargeLimit::MaximumLifespan => (55, 60),
             ChargeLimit::DeskMode => (40, 50),
-            // ChargeLimit::Custom(val) => (val.saturating_sub(5), val)
         }
     }
 
-    pub fn from_predefined(min: u8, max: u8) -> Option<Self> { // todo: wait, oh fck this is bad..
+    pub fn from_predefined(min: u8, max: u8) -> Option<Self> {
         if min > max {
             return None;
         }
@@ -112,7 +111,7 @@ impl ChargeLimit {
             (70, 80) => Some(Self::Balanced),
             (55, 60) => Some(Self::MaximumLifespan),
             (40, 50) => Some(Self::DeskMode),
-            _ => None, // todo: custom
+            _ => None,
         }
     }
 }
@@ -166,6 +165,7 @@ pub struct BreathConfig {
     pub delay_at_min: BreathDelay,
 }
 
+// TODO: move from here! it's should be const vars
 impl BreathConfig {
     /// A gentle, smooth breathing effect perfect for normal, idle operation.
     /// Gradually fades in and out with comfortable pauses.
@@ -198,7 +198,7 @@ impl BreathConfig {
             max_brightness: BreathBrightness::Max75Percent,
             step_up: BreathStep::Instant,
             step_down: BreathStep::Instant,
-            delay_at_max: BreathDelay::Ms125 ,
+            delay_at_max: BreathDelay::Ms125,
             delay_at_min: BreathDelay::Ms125,
         }
     }
@@ -299,24 +299,101 @@ impl BreathConfig {
     }
 }
 
+// todo: prob move from here
+#[derive(Encode, Decode, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChargeRange { pub min: u8, pub max: u8 }
+
+/// Fixed vocabulary. A new board adds a backend in the daemon, never a variant here.
+/// bincode encodes the variant index: append only.
+#[derive(Encode, Decode, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChargeIntent {
+    Full,
+    /// None = thresholds are chosen by firmware (N161A).
+    Preserve(Option<ChargeRange>),
+    Freeze,
+}
+
+impl Default for ChargeIntent {
+    fn default() -> Self { Self::Full }
+}
+
+// ---------- capabilities ----------
+
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Eq, Default)]
+pub struct ChargeCaps {
+    pub supported: bool,
+    /// Bounds for a user-defined range. None = board cannot do arbitrary ranges.
+    pub custom_range: Option<(u8, u8)>,
+    /// Firmware-owned (start, stop). Some => Preserve(None) is available.
+    pub preserve_fixed: Option<(u8, u8)>,
+    /// SoC window where Freeze works. None = unsupported or unverified.
+    pub freeze_soc: Option<(u8, u8)>,
+    pub survives_daemon: bool,
+    /// Already resolved by the daemon for this board, so CLI/GUI never
+    /// map a name to an intent themselves and never silently substitute.
+    pub presets: Vec<(String, ChargeIntent)>,
+}
+
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Eq)]
+pub struct FanCaps { pub index: FanIndex, pub duty_max: u8 }
+
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Eq, Default)]
+pub struct KbdCaps { pub on_off: bool, pub levels: bool, pub custom: bool }
+
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Eq, Default)]
+pub struct LedCaps { pub on_off: bool, pub brightness: bool, pub animation: bool }
+
+#[derive(Encode, Decode, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SensorRole { Cpu, Sys }
+
+/// TODO: pretty heavy. Store in BOX
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Eq)]
+pub struct Capabilities {
+    pub schema: u16,
+    pub board: String,
+    pub daemon_version: String,
+    pub fans: Vec<FanCaps>,
+    pub sensors: Vec<SensorRole>,
+    pub power_profiles: Vec<PowerProfile>,
+    pub kbd: KbdCaps,
+    pub led: LedCaps,
+    pub battery_leds: bool,
+    pub charge: ChargeCaps,
+}
+
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Eq)]
+pub struct ChargeStatus {
+    pub desired: ChargeIntent,
+    pub effective: ChargeIntent,
+    pub soc: u8,
+    /// Some(reason) => cannot apply right now; will retry on AC/wake events.
+    pub pending: Option<String>,
+    pub thresholds: Option<(u8, u8)>,
+}
+
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Eq)]
+pub struct UnsupportedInfo {
+    pub board: String,
+    pub chip: Option<String>,
+    pub hint: String,
+}
+
+// ---------- persisted state ----------
+
+const SETINGS_SCHEMA_VER: u16 = 2;
+
 /// Current configuration settings of the system
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct CurrentSettings {
-    /// Current power profile setting
-    pub power_profile: PowerProfile,
-    /// Current keyboard backlight brightness level
-    pub keyboard_backlight: KeyboardBacklightLevel,
-    /// Current CPU fan mode setting
-    pub fan_mode_cpu: FanMode,
-    /// Current GPU fan mode setting
-    pub fan_mode_gpu: FanMode,
-    /// Current battery charge limit setting
-    pub charge_limit: ChargeLimit,
-    /// Current power LED mode setting
-    pub led_mode: PowerLedMode,
-    /// Whether telemetry is enabled
+    pub version: u16,
     pub telemetry_enabled: bool,
     pub telemetry_client_id: u64,
+    pub keyboard_backlight: KeyboardBacklightLevel,
+    pub led_mode: PowerLedMode,
+    pub power_profile: PowerProfile,
+    pub charge: ChargeIntent,
+    pub fan_mode_cpu: FanMode,
+    pub fan_mode_gpu: FanMode,
 }
 
 impl Default for CurrentSettings {
@@ -326,14 +403,15 @@ impl Default for CurrentSettings {
         let client_id = hasher.finish();
 
         Self {
-            power_profile: PowerProfile::Default,
-            keyboard_backlight: KeyboardBacklightLevel::Medium,
-            fan_mode_cpu: FanMode::Auto,
-            fan_mode_gpu: FanMode::Auto,
-            charge_limit: ChargeLimit::FullCapacity,
-            led_mode: PowerLedMode::Auto,
+            version: SETINGS_SCHEMA_VER,
             telemetry_enabled: true,
             telemetry_client_id: client_id,
+            keyboard_backlight: KeyboardBacklightLevel::Medium,
+            led_mode: PowerLedMode::Auto,
+            power_profile: PowerProfile::Default,
+            charge: ChargeIntent::Full,
+            fan_mode_cpu: FanMode::Auto,
+            fan_mode_gpu: FanMode::Auto,
         }
     }
 }
