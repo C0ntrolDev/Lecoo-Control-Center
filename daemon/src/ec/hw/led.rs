@@ -1,89 +1,100 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use anyhow::{Result, bail};
 use ipc::PowerLedMode;
-use anyhow::Result;
 use super::EcDevice;
+use crate::ec::{Addr, LedOps, PwmSpec};
 
 static IS_LED_ALREADY_CUSTOM: AtomicBool = AtomicBool::new(false);
 
-pub fn reset_led_anim_engine(ec: &EcDevice) -> Result<()> {
-    ec.with_batch(|b| {
-        b.write_reg(b.offsets.reg_led_breath_en, 0x00)?;     // Disable hardware breathing dimmer
-        b.write_reg(b.offsets.reg_pwm_prescaler, 0x00)?;     // Reset prescaler (maximum PWM frequency)
-        b.write_reg(b.offsets.reg_pwm_cycle, 0xFF)           // Reset Cycle Time (standard 256 steps)
-    })
-}
-// TODO: improve logic here... one day
-
 pub fn apply_led_mode(ec: &EcDevice, mode: &PowerLedMode) -> Result<()> {
-    let offsets = ec.offsets;
-    match mode {
-        PowerLedMode::Auto => {
-            ec.write_ram(offsets.ram_led_bypass, 0x00)?;
-            reset_led_anim_engine(ec)?;
-            IS_LED_ALREADY_CUSTOM.store(false, Ordering::Relaxed);
-        }
+    match ec.profile.led {
+        LedOps::None => bail!("Board {} has no controllable power LED", ec.profile.id),
 
-        // Set LED to custom brightness value
-        PowerLedMode::Custom(brightness) => {
-            if !IS_LED_ALREADY_CUSTOM.load(Ordering::Relaxed) {
-                ec.write_ram(offsets.ram_led_bypass, 0x01)?;            // LED-controller bypass mode
-                ec.write_reg(offsets.reg_gpio_a0_mux, 0x00)?;           // Pin multiplexer in manual mode
-                IS_LED_ALREADY_CUSTOM.store(true, Ordering::Relaxed);
+        LedOps::Pwm { pwm } => match mode {
+            PowerLedMode::Auto => set_auto(ec, pwm, None),
+            PowerLedMode::Custom(brightness) => set_custom(ec, pwm, None, *brightness),
+            PowerLedMode::Animation(_) =>
+                bail!("Board {} has no hardware LED animation", ec.profile.id),
+        },
+
+        LedOps::PwmBreath { pwm, breath_en, breath_step, breath_delay } => match mode {
+            PowerLedMode::Auto => set_auto(ec, pwm, Some(breath_en)),
+            PowerLedMode::Custom(brightness) => set_custom(ec, pwm, Some(breath_en), *brightness),
+            PowerLedMode::Animation(config) => {
+                enter_custom(ec, pwm)?;
+                reset_engine(ec, pwm, Some(breath_en))?;
+
+                ec.with_batch(|b| {
+                    b.write(pwm.prescaler, 0x00)?;
+                    b.write(pwm.cycle, 0xFF)?;
+                    b.write(breath_step, config.breath_step_register())?;
+                    b.write(breath_delay, config.breath_delay_register())?;
+                    b.write(breath_en, 0x01)
+                })
             }
-            reset_led_anim_engine(ec)?;                 // TODO HERE! call only if it hasn't been called already
-            ec.write_reg(offsets.reg_pwm_duty, *brightness)?;           // PWM Duty Cycle Register (brightness)
-        }
-
-        // Set LED to breathing animation
-        PowerLedMode::Animation(config) => {
-            if !IS_LED_ALREADY_CUSTOM.load(Ordering::Relaxed) {
-                ec.write_ram(offsets.ram_led_bypass, 0x01)?;
-                ec.write_reg(offsets.reg_gpio_a0_mux, 0x00)?;
-                IS_LED_ALREADY_CUSTOM.store(true, Ordering::Relaxed);
-            }
-            reset_led_anim_engine(ec)?;
-
-            // Returning the base PWM frequency to normal for a smooth dimmer
-            ec.write_reg(offsets.reg_pwm_prescaler, 0x00)?;
-            ec.write_reg(offsets.reg_pwm_cycle, 0xFF)?;
-
-            // Assemble byte for the PWM0LCR1 register
-            // Bits [5:4] - Max Brightness | Bits [3:2] - Step Down | Bits [1:0] - Step Up
-            let lcr1_val = ((config.max_brightness as u8) << 4)
-                            | ((config.step_down as u8) << 2)
-                            | (config.step_up as u8);
-            ec.write_reg(offsets.reg_led_breath_step, lcr1_val)?;
-
-            // Assemble byte for the PWM0LCR2 register
-            // Bits [6:4] - Delay at Max | Bits [2:0] - Delay at Min
-            let lcr2_val = ((config.delay_at_max as u8) << 4)
-                            | (config.delay_at_min as u8);
-            ec.write_reg(offsets.reg_led_breath_delay, lcr2_val)?;
-
-            // Aaaand launching the hardware breathing engine!
-            ec.write_reg(offsets.reg_led_breath_en, 0x01)?;
-        }
+        },
     }
-
-    Ok(())
 }
 
 pub fn apply_battery_leds(ec: &EcDevice, orange_on: bool, white_on: bool) -> Result<()> {
-    let offsets = ec.offsets;
-    let mut port_a = ec.read_reg(offsets.reg_gpdra)?;
+    let Some(spec) = ec.profile.battery_leds else { return Ok(()) };
 
-    if orange_on {
-        port_a &= !offsets.mask_orange_led; // On
-    } else {
-        port_a |= offsets.mask_orange_led;  // Off
+    let mut port = ec.read(spec.port)?;
+    let set = |on: bool, mask: u8, port: &mut u8| {
+        if on == spec.active_low { *port &= !mask } else { *port |= mask }
+    };
+    set(orange_on, spec.orange_mask, &mut port);
+    set(white_on, spec.white_mask, &mut port);
+
+    ec.write(spec.port, port)
+}
+
+// ------ helpers ------
+
+#[inline]
+fn enter_custom(ec: &EcDevice, pwm: PwmSpec) -> Result<()> {
+    if !IS_LED_ALREADY_CUSTOM.load(Ordering::Relaxed) {
+        ec.with_batch(|b| {
+            b.write(pwm.bypass, 0x01)?;
+            b.write(pwm.mux, 0x00)
+        })?;
+        IS_LED_ALREADY_CUSTOM.store(true, Ordering::Relaxed);
     }
+    Ok(())
+}
 
-    if white_on {
-        port_a &= !offsets.mask_white_led;  // On
-    } else {
-        port_a |= offsets.mask_white_led;   // Off
+#[inline]
+fn reset_engine(ec: &EcDevice, pwm: PwmSpec, breath_en: Option<Addr>) -> Result<()> {
+    ec.with_batch(|b| {
+        if let Some(en) = breath_en {
+            b.write(en, 0x00)?;
+        }
+        b.write(pwm.prescaler, 0x00)?;
+        b.write(pwm.cycle, 0xFF)
+    })
+}
+
+#[inline]
+pub fn reset_led_anim_engine(ec: &EcDevice) -> Result<()> {
+    match ec.profile.led {
+        LedOps::None => Ok(()),
+        LedOps::Pwm { pwm } => reset_engine(ec, pwm, None),
+        LedOps::PwmBreath { pwm, breath_en, .. } => reset_engine(ec, pwm, Some(breath_en)),
     }
+}
 
-    ec.write_reg(offsets.reg_gpdra, port_a)
+#[inline]
+fn set_auto(ec: &EcDevice, pwm: PwmSpec, breath_en: Option<Addr>) -> Result<()> {
+    ec.write(pwm.bypass, 0x00)?;
+    reset_engine(ec, pwm, breath_en)?;
+    IS_LED_ALREADY_CUSTOM.store(false, Ordering::Relaxed);
+    Ok(())
+}
+
+#[inline]
+fn set_custom(ec: &EcDevice, pwm: PwmSpec, breath_en: Option<Addr>, brightness: u8) -> Result<()> {
+    enter_custom(ec, pwm)?;
+    reset_engine(ec, pwm, breath_en)?;
+    ec.write(pwm.duty, brightness)
 }

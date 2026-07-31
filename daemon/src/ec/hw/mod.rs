@@ -6,6 +6,7 @@ mod kbd_backlight;
 mod led;
 mod fan;
 mod flexicharger;
+mod dump;
 
 pub use power_profile::*;
 pub use getters::*;
@@ -13,3 +14,4 @@ pub use kbd_backlight::*;
 pub use led::*;
 pub use fan::*;
 pub use flexicharger::*;
+pub use dump::*;

@@ -27,9 +27,9 @@ pub enum DaemonResponse {
 /// Represents the power profiles
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum PowerProfile {
-    Silent = 0x01,
-    Default = 0x02,
-    Performance = 0x03,
+    Silent,
+    Default,
+    Performance,
 }
 
 impl std::fmt::Display for PowerProfile {
@@ -45,7 +45,7 @@ impl std::fmt::Display for PowerProfile {
 
 /// Represents the keyboard backlight brightness levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-pub enum KeyboardBacklightLevel {
+pub enum KeyboardBacklightLevel { // TODO: not every revision supports all levels!!!!! fix it later
     Off,
     Low,
     Medium,
@@ -69,15 +69,16 @@ impl std::fmt::Display for KeyboardBacklightLevel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum FanMode {
     Auto,           // Controlled by EC thermal tables
-    Full,           // 100% speed override (Turbo)
+    Full,           // 100% speed override
+    Turbo,          // Turbo mode (without safety)
     Custom(u8),     // Custom PWM duty cycle
 }
 
 /// Identifies the specific fan
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Hash)]
 pub enum FanIndex {
-    Cpu = 0x4B,
-    Gpu = 0x4D,
+    Cpu,
+    Gpu, // not actually gpu, actually the cpu 2nd fan
 }
 
 /// Represents battery charge limit profiles (FlexiCharger)
@@ -167,6 +168,18 @@ pub struct BreathConfig {
 
 // TODO: move from here! it's should be const vars
 impl BreathConfig {
+    /// Creates the value for the breath_step register (LCR1)
+    pub fn breath_step_register(&self) -> u8 {
+        ((self.max_brightness as u8) << 4)
+            | ((self.step_down as u8) << 2)
+            | (self.step_up as u8)
+    }
+
+    /// Creates the value for the breath_delay register (LCR2)
+    pub fn breath_delay_register(&self) -> u8 {
+        ((self.delay_at_max as u8) << 4) | (self.delay_at_min as u8)
+    }
+
     /// A gentle, smooth breathing effect perfect for normal, idle operation.
     /// Gradually fades in and out with comfortable pauses.
     pub fn smooth() -> Self {
@@ -349,7 +362,6 @@ pub enum SensorRole { Cpu, Sys }
 /// TODO: pretty heavy. Store in BOX
 #[derive(Encode, Decode, Clone, Debug, PartialEq, Eq)]
 pub struct Capabilities {
-    pub schema: u16,
     pub board: String,
     pub daemon_version: String,
     pub fans: Vec<FanCaps>,
@@ -375,12 +387,11 @@ pub struct ChargeStatus {
 pub struct UnsupportedInfo {
     pub board: String,
     pub chip: Option<String>,
-    pub hint: String,
 }
 
 // ---------- persisted state ----------
 
-const SETINGS_SCHEMA_VER: u16 = 2;
+pub const SETINGS_SCHEMA_VER: u16 = 2;
 
 /// Current configuration settings of the system
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]

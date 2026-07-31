@@ -1,33 +1,52 @@
 use anyhow::Result;
+use ipc::{FanIndex, SensorRole};
 use super::EcDevice;
+use crate::ec::{REG_CHIP_ID1, REG_CHIP_ID2, REG_CHIP_VER};
 
 pub fn read_system_info(ec: &EcDevice) -> Result<(u8, u8, u8)> {
     ec.with_batch(|b| {
-        let chip_id1 = b.read_reg(b.offsets.reg_chip_id1)?;
-        let chip_id2 = b.read_reg(b.offsets.reg_chip_id2)?;
-        let chip_ver = b.read_reg(b.offsets.reg_chip_ver)?;
+        let chip_id1 = b.read_abs(REG_CHIP_ID1)?;
+        let chip_id2 = b.read_abs(REG_CHIP_ID2)?;
+        let chip_ver = b.read_abs(REG_CHIP_VER)?;
         Ok((chip_id1, chip_id2, chip_ver))
     })
 }
 
+/// Missing fans report 0 so the existing two-slot IPC response stays valid.
 pub fn read_fans_rpm(ec: &EcDevice) -> Result<(u16, u16)> {
     ec.with_batch(|b| {
-        let cpu_msb = b.read_ram(b.offsets.ram_fan_cpu_msb)? as u16;
-        let cpu_lsb = b.read_ram(b.offsets.ram_fan_cpu_lsb)? as u16;
-        let cpu_rpm = (cpu_msb << 8) | cpu_lsb;
+        let read_one = |index: FanIndex| -> Result<u16> {
+            let Some(spec) = ec.profile.fan(index) else { return Ok(0) };
+            let msb = b.read(spec.rpm_msb)? as u16;
+            let lsb = b.read(spec.rpm_lsb)? as u16;
+            Ok((msb << 8) | lsb)
+        };
 
-        let gpu_msb = b.read_ram(b.offsets.ram_fan_gpu_msb)? as u16;
-        let gpu_lsb = b.read_ram(b.offsets.ram_fan_gpu_lsb)? as u16;
-        let gpu_rpm = (gpu_msb << 8) | gpu_lsb;
-
-        Ok((cpu_rpm, gpu_rpm))
+        Ok((read_one(FanIndex::Cpu)?, read_one(FanIndex::Gpu)?))
     })
 }
 
+/// Reads all fan RPM values from the EC. Currently not used.
+// pub fn read_fans_all(ec: &EcDevice) -> Result<Vec<(FanIndex, u16)>> {
+//     ec.with_batch(|b| {
+//         let mut out = Vec::with_capacity(ec.profile.fans.len());
+//         for f in ec.profile.fans {
+//             let msb = b.read(f.rpm_msb)? as u16;
+//             let lsb = b.read(f.rpm_lsb)? as u16;
+//             out.push((f.index, (msb << 8) | lsb));
+//         }
+//         Ok(out)
+//     })
+// }
+
 pub fn read_temperatures(ec: &EcDevice) -> Result<(u8, u8)> {
     ec.with_batch(|b| {
-        let cpu_temp = b.read_ram(b.offsets.ram_temp_cpu)? as u8;
-        let sys_temp = b.read_ram(b.offsets.ram_temp_sys)? as u8;
-        Ok((cpu_temp, sys_temp))
+        let read_one = |role: SensorRole| -> Result<u8> {
+            match ec.profile.sensor(role) {
+                Some(spec) => b.read(spec.addr),
+                None => Ok(0),
+            }
+        };
+        Ok((read_one(SensorRole::Cpu)?, read_one(SensorRole::Sys)?))
     })
 }

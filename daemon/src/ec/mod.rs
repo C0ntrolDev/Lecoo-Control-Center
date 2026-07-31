@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::sync::Mutex;
 
 #[cfg(target_os = "linux")]
@@ -13,108 +13,99 @@ pub use sys_windows::RawPortIo;
 
 mod hw;
 pub use hw::*;
-mod offsets;
-pub use offsets::*;
+mod profile;
+pub use profile::*;
 
-/// Platform-independent Embedded Controller hardware interface
+// DEFAULT REGS FOR ITE IT5570/IT8987 CHIPS
+pub(crate) const REG_CHIP_ID1: u16 = 0x2000;
+pub(crate) const REG_CHIP_ID2: u16 = 0x2001;
+pub(crate) const REG_CHIP_VER: u16 = 0x2002;
+
 pub struct EcDevice {
     /// Mutex wraps the low-level I/O backend.
     /// Locking it ensures atomic multi-step Super I/O transactions,
     /// preventing thread race conditions during Index/Data port writes.
     io: Mutex<RawPortIo>,
-    /// Detected Super I/O base port
-    port: u16,
-    pub offsets: EcOffsets,
-    pub hram_offset: u16,
+    /// Selected profile for runtime
+    pub profile: &'static BoardProfile,
+    pub rt: EcRuntime,
 }
 
 impl EcDevice {
-    /// Initializes the EC interface and auto-detects the active port.
+    /// Detects the board from DMI. Fails on unknown boards; the caller decides
+    /// whether to serve Unsupported over IPC.
     pub fn new(insecure_mode: bool) -> Result<Self> {
-        // Initialize the platform-specific low-level I/O
+        let board = crate::services::get_board_name();
+        let profile = detect(&board)
+            .ok_or_else(|| anyhow::anyhow!("Unsupported motherboard: {board}"))?;
+        log::info!("Detected motherboard {}.", profile.id);
+        Self::new_with_profile(profile, insecure_mode)
+    }
+
+    pub fn new_with_profile(profile: &'static BoardProfile, insecure_mode: bool) -> Result<Self> {
         let io = RawPortIo::new()?;
-
-        let mut offsets = EcOffsets::DEFAULT_N155A;
-        let motherboard = crate::services::get_board_name();
-
-        // Probe for motherboard type
-        if motherboard.contains("N155A") {
-            log::info!("Detected motherboard N155A.");
-        }
-        else if motherboard.contains("N155C") {
-            log::info!("Detected motherboard N155C.");
-        }
-        else if motherboard.contains("N155D") {
-            log::info!("Detected motherboard N155D.");
-            offsets = EcOffsets::DEFAULT_N155D;
-        }
-        else if motherboard.contains("N161A") {
-            log::info!("Detected motherboard N161A.");
-            offsets = EcOffsets::DEFAULT_N161A;
-        } else if !insecure_mode {
-            // bail!("Unsupported motherboard: {}", motherboard);
-            log::error!("Unsupported motherboard: {}", motherboard);
-            log::error!("Be careful. This will panic in future updates!");
-        }
+        let (port, chip) = probe_chip(&io, insecure_mode)?;
 
         let mut device = Self {
             io: Mutex::new(io),
-            port: 0,
-            offsets,
-            hram_offset: 0xFF
+            profile,
+            rt: EcRuntime {
+                port,
+                hram_offset: 0,
+                chip_id1: chip.0,
+                chip_id2: chip.1,
+                chip_ver: chip.2,
+            },
         };
 
-        device.probe_chip(insecure_mode)?;
-
-        let possible_bases: [u16; 5] = [0xC400, 0xC000, 0x0400, 0x0000, 0xE000];
-        for &base in &possible_bases {
-            // A REALLY(!) weak heuristic for detecting HRAM window
-            if let Ok(temp) = device.read_reg(base + device.offsets.ram_temp_cpu) {
-                if temp > 0x10 && temp < 0x50 {
-                    device.hram_offset = base;
-                    log::info!("HRAM Window detected by offset: {:#06X}. Temp: {}", base, temp);
-                    break;
-                }
-            }
-        }
-
-        if device.hram_offset == 0xFF {
-            bail!("Failed to detect HRAM window base address");
-        }
-
-        if device.hram_offset == 0xC400 {
-            log::info!("EC base offset is 0xC400. Adjusting register offsets.");
-            device.offsets.reg_kbd_backlight += 0xC000;
-        }
-
+        device.rt.hram_offset = device.detect_hram()?;
+        log::info!(
+            "Board {}, chip IT{:02X}{:02X}-{:02X}, HRAM window {:#06X}",
+            profile.id, chip.0, chip.1, chip.2, device.rt.hram_offset
+        );
         Ok(device)
     }
 
-    /// Probes common Super I/O ports to find the ITE chip.
-    fn probe_chip(&mut self, insecure_mode: bool) -> Result<()> {
-        let probe_ports = [0x2E, 0x4E, 0x6E];
+    #[inline]
+    pub fn hram_offset(&self) -> u16 { self.rt.hram_offset }
 
-        for &p in &probe_ports {
-            self.port = p;
+    /// Temperature stays the primary signal; RSOC only breaks ties between
+    /// several plausible windows, so this never rejects what used to work.
+    fn detect_hram(&self) -> Result<u16> {
+        let temp = match self.profile.sensor(ipc::SensorRole::Cpu).map(|s| s.addr) {
+            Some(Addr::Ram(off)) => off,
+            _ => bail!("Profile {} has no RAM-based CPU sensor", self.profile.id),
+        };
+        let rsoc = self.profile.battery.and_then(|b| match b.rsoc {
+            Addr::Ram(off) => Some(off),
+            _ => None,
+        });
 
-            if let Ok(chip_id) = self.read_reg(0x2000) {
-                if chip_id == 0x55 {
-                    return Ok(()); // Successfully found IT5570
-                }
-                if chip_id == 0x81 || chip_id == 0x85 || chip_id == 0x89 || chip_id == 0x90 {
-                    log::warn!("Warning: Found chip ID {:#X} at port {:#X}", chip_id, self.port);
-                    log::warn!("Note: This chip may not be fully supported");
-                    return Ok(());
+        let mut candidates = Vec::new();
+        for &base in self.profile.hram_candidates {
+            if let Ok(t) = self.read_abs(base + temp) {
+                // A REALLY(!) weak heuristic for detecting HRAM window
+                // TOOD: use a real cpuid op for real temp value!
+                if t > 0x10 && t < 0x50 {
+                    candidates.push(base);
                 }
             }
         }
 
-        if insecure_mode {
-            log::warn!("ITE chip not detected on any known port.");
-            log::warn!("INSECURE MODE: Proceeding blindly. Interacting with unknown hardware may cause system instability or damage!");
-            Ok(())
-        } else {
-            bail!("ITE IT5570/IT8987 chip not found on any known port")
+        match candidates.len() {
+            0 => bail!("Failed to detect HRAM window base address"),
+            1 => Ok(candidates[0]),
+            _ => { // unlikely case!!!
+                if let Some(off) = rsoc {
+                    for &base in &candidates {
+                        if matches!(self.read_abs(base + off), Ok(v) if v <= 100) {
+                            return Ok(base);
+                        }
+                    }
+                }
+                log::warn!("Ambiguous HRAM window, candidates: {:04X?}", candidates);
+                Ok(candidates[0])
+            }
         }
     }
 
@@ -126,104 +117,127 @@ impl EcDevice {
         F: FnOnce(&EcBatch) -> Result<R>,
     {
         let guard = self.io.lock().unwrap();
-
-        let batch = EcBatch {
-            io: guard,
-            port: self.port,
-            hram_offset: self.hram_offset,
-            offsets: &self.offsets,
-        };
-
+        let batch = EcBatch { io: guard, rt: self.rt, profile: self.profile };
         f(&batch)
     }
 
     // --- High-Level Facades ---
-    pub fn read_reg(&self, addr: u16) -> Result<u8> {
-        self.with_batch(|b| b.read_reg(addr))
+    pub fn read(&self, addr: Addr) -> Result<u8> {
+        self.with_batch(|b| b.read(addr))
     }
 
-    pub fn write_reg(&self, addr: u16, val: u8) -> Result<()> {
-        self.with_batch(|b| b.write_reg(addr, val))
+    pub fn write(&self, addr: Addr, val: u8) -> Result<()> {
+        self.with_batch(|b| b.write(addr, val))
     }
 
-    pub fn read_ram(&self, offset: u16) -> Result<u8> {
-        self.with_batch(|b| b.read_ram(offset))
+    /// Read-modify-write for bytes shared with firmware. Returns the value read back.
+    pub fn update_bits(&self, addr: Addr, mask: u8, val: u8) -> Result<u8> {
+        self.with_batch(|b| {
+            let cur = b.read(addr)?;
+            b.write(addr, (cur & !mask) | (val & mask))?;
+            b.read(addr)
+        })
     }
 
-    pub fn write_ram(&self, offset: u16, val: u8) -> Result<()> {
-        self.with_batch(|b| b.write_ram(offset, val))
+    pub(crate) fn read_abs(&self, addr: u16) -> Result<u8> {
+        self.with_batch(|b| b.read_abs(addr))
     }
+}
+
+fn probe_chip(io: &RawPortIo, insecure_mode: bool) -> Result<(u16, (u8, u8, u8))> {
+    let probe_ports = [0x2E, 0x4E, 0x6E];
+    let mut last = probe_ports[0];
+
+    for &p in &probe_ports {
+        last = p;
+        let Ok(id1) = raw_read(io, p, REG_CHIP_ID1) else { continue };
+        if matches!(id1, 0x55 | 0x81 | 0x85 | 0x89 | 0x90) {
+            if id1 != 0x55 {
+                log::warn!("Found chip ID {:#X} at port {:#X}", id1, p);
+                log::warn!("Note: This chip may not be fully supported");
+            }
+            let id2 = raw_read(io, p, REG_CHIP_ID2).unwrap_or(0);
+            let ver = raw_read(io, p, REG_CHIP_VER).unwrap_or(0);
+            return Ok((p, (id1, id2, ver)));
+        }
+    }
+
+    if insecure_mode {
+        log::warn!("ITE chip not detected on any known port.");
+        log::warn!("INSECURE MODE: Proceeding blindly. Interacting with unknown hardware may cause system instability or damage!");
+        Ok((last, (0, 0, 0)))
+    } else {
+        bail!("ITE IT5570/IT8987 chip not found on any known port")
+    }
+}
+
+/// Diagnostic probe that never initializes the EC. Used for the Unsupported hint.
+pub fn probe_chip_only() -> Option<(u8, u8, u8)> {
+    let io = RawPortIo::new().ok()?;
+    probe_chip(&io, false).ok().map(|(_, chip)| chip)
+}
+
+/// Small helper for this module
+fn raw_read(io: &RawPortIo, port: u16, addr: u16) -> Result<u8> {
+    io.outb(port, 0x2E)?;
+    io.outb(port + 1, 0x11)?;
+    io.outb(port, 0x2F)?;
+    io.outb(port + 1, (addr >> 8) as u8)?;
+    io.outb(port, 0x2E)?;
+    io.outb(port + 1, 0x10)?;
+    io.outb(port, 0x2F)?;
+    io.outb(port + 1, (addr & 0xFF) as u8)?;
+    io.outb(port, 0x2E)?;
+    io.outb(port + 1, 0x12)?;
+    io.outb(port, 0x2F)?;
+    io.inb(port + 1)
 }
 
 /// A short-lived transaction guard holding the hardware mutex.
 /// Contains the actual low-level port read/write implementations.
 pub struct EcBatch<'a> {
     io: std::sync::MutexGuard<'a, RawPortIo>,
-    port: u16,
-    pub hram_offset: u16,
-    pub offsets: &'a EcOffsets,
+    pub rt: EcRuntime,
+    pub profile: &'static BoardProfile,
 }
 
 impl<'a> EcBatch<'a> {
-    /// Reads a single byte from the specified EC absolute register address.
-    pub fn read_reg(&self, addr: u16) -> Result<u8> {
-        let addr_high = (addr >> 8) as u8;
-        let addr_low = (addr & 0xFF) as u8;
+    #[inline(always)]
+    fn resolve(&self, addr: Addr) -> u16 {
+        match addr {
+            Addr::Reg(x) => x,
+            Addr::Ram(x) => self.rt.hram_offset + x,
+            Addr::Banked(x) => x + (self.rt.hram_offset & 0xF000),
+        }
+    }
 
-        self.io.outb(self.port, 0x2E)?;
-        self.io.outb(self.port + 1, 0x11)?;
+    pub fn read(&self, addr: Addr) -> Result<u8> {
+        self.read_abs(self.resolve(addr))
+    }
 
-        self.io.outb(self.port, 0x2F)?;
-        self.io.outb(self.port + 1, addr_high)?;
+    pub fn write(&self, addr: Addr, val: u8) -> Result<()> {
+        self.write_abs(self.resolve(addr), val)
+    }
 
-        self.io.outb(self.port, 0x2E)?;
-        self.io.outb(self.port + 1, 0x10)?;
-
-        self.io.outb(self.port, 0x2F)?;
-        self.io.outb(self.port + 1, addr_low)?;
-
-        self.io.outb(self.port, 0x2E)?;
-        self.io.outb(self.port + 1, 0x12)?;
-
-        self.io.outb(self.port, 0x2F)?;
-        self.io.inb(self.port + 1)
+    pub fn read_abs(&self, addr: u16) -> Result<u8> {
+        raw_read(&self.io, self.rt.port, addr)
     }
 
     /// Writes a single byte to the specified EC absolute register address.
-    pub fn write_reg(&self, addr: u16, val: u8) -> Result<()> {
-        let addr_high = (addr >> 8) as u8;
-        let addr_low = (addr & 0xFF) as u8;
-
-        self.io.outb(self.port, 0x2E)?;
-        self.io.outb(self.port + 1, 0x11)?;
-
-        self.io.outb(self.port, 0x2F)?;
-        self.io.outb(self.port + 1, addr_high)?;
-
-        self.io.outb(self.port, 0x2E)?;
-        self.io.outb(self.port + 1, 0x10)?;
-
-        self.io.outb(self.port, 0x2F)?;
-        self.io.outb(self.port + 1, addr_low)?;
-
-        self.io.outb(self.port, 0x2E)?;
-        self.io.outb(self.port + 1, 0x12)?;
-
-        self.io.outb(self.port, 0x2F)?;
-        self.io.outb(self.port + 1, val)?;
-
+    pub fn write_abs(&self, addr: u16, val: u8) -> Result<()> {
+        let p = self.rt.port;
+        self.io.outb(p, 0x2E)?;
+        self.io.outb(p + 1, 0x11)?;
+        self.io.outb(p, 0x2F)?;
+        self.io.outb(p + 1, (addr >> 8) as u8)?;
+        self.io.outb(p, 0x2E)?;
+        self.io.outb(p + 1, 0x10)?;
+        self.io.outb(p, 0x2F)?;
+        self.io.outb(p + 1, (addr & 0xFF) as u8)?;
+        self.io.outb(p, 0x2E)?;
+        self.io.outb(p + 1, 0x12)?;
+        self.io.outb(p, 0x2F)?;
+        self.io.outb(p + 1, val)?;
         Ok(())
-    }
-
-    // --- Hardware-Specific Helpers (Shared Memory Space) ---
-
-    /// Reads a single byte from the HRAM window using the detected offset.
-    pub fn read_ram(&self, offset: u16) -> Result<u8> {
-        self.read_reg(self.hram_offset + offset)
-    }
-
-    /// Writes a single byte to the HRAM window using the detected offset.
-    pub fn write_ram(&self, offset: u16, val: u8) -> Result<()> {
-        self.write_reg(self.hram_offset + offset, val)
     }
 }

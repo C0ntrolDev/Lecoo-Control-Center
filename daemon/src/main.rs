@@ -1,7 +1,7 @@
 // #![windows_subsystem = "windows"]
 
-use anyhow::{Result, Context};
-use ipc::{ChargeLimit, CurrentSettings, IpcConnection, IpcRequest, IpcServer};
+use anyhow::{Context, Result};
+use ipc::{CurrentSettings, IpcConnection, IpcRequest, IpcServer};
 use log::info;
 use std::{sync::{Mutex, OnceLock}, thread};
 
@@ -14,10 +14,25 @@ mod telemetry;
 
 pub static EC: OnceLock<ec::EcDevice> = OnceLock::new();
 pub static STATE: OnceLock<Mutex<CurrentSettings>> = OnceLock::new();
+pub static UNSUPPORTED: OnceLock<ipc::UnsupportedInfo> = OnceLock::new();
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Process an incoming IPC connection by handling requests in a loop
+fn resolve_profile(args: &[String], board: &str) -> Option<&'static ec::BoardProfile> {
+    if let Some(i) = args.iter().position(|a| a == "--profile") {
+        let id = args.get(i + 1)?;
+        return match ec::by_id(id) {
+            Some(p) => { log::warn!("Forced board profile: {}", p.id); Some(p) }
+            None => {
+                log::error!("Unknown profile id: {id}. Known: {}",
+                    ec::PROFILES.iter().map(|p| p.id).collect::<Vec<_>>().join(", "));
+                None
+            }
+        };
+    }
+    ec::detect(board)
+}
+
 fn process_ipc_connection(mut conn: IpcConnection) {
     thread::spawn(move || {
         if let Err(e) = conn.accept_handshake() {
@@ -59,15 +74,12 @@ fn process_ipc_connection(mut conn: IpcConnection) {
 fn process_service(rx_in_core: std::sync::mpsc::Receiver<services::InternalEvent>) {
     use ipc::{PowerLedMode, BreathConfig};
     let ec = EC.get().unwrap();
+
     let read_and_save_state = |ec: &ec::EcDevice| {
         if let Ok(mut state) = handlers::get_state() {
             let _ = ec::read_keyboard_backlight(ec).map(|kbd| state.keyboard_backlight = kbd);
             let _ = ec::read_power_profile(ec).map(|profile| state.power_profile = profile);
-            if let Ok((min, max)) = ec::read_charge_limit(ec) {
-                if let Some(limit) = ChargeLimit::from_predefined(min, max) {
-                    state.charge_limit = limit;
-                }
-            }
+            let _ = ec::effective_charge(ec).map(|(intent, _)| state.charge = intent);
             let _ = state.save();
         } else {
             log::error!("Incomplete state save on event");
@@ -75,47 +87,52 @@ fn process_service(rx_in_core: std::sync::mpsc::Receiver<services::InternalEvent
     };
 
     loop {
-        match rx_in_core.recv() {
-            Ok(event) => {
-                match event {
-                    services::InternalEvent::SystemShuttingDown | services::InternalEvent::SystemHibernating => {
-                        let _ = ec::apply_led_mode(ec, &PowerLedMode::Auto);
-                        read_and_save_state(ec);
-                    }
+        let Ok(event) = rx_in_core.recv() else { break };
 
-                    services::InternalEvent::SystemSleeping => {
-                        let _ = ec::apply_led_mode(
-                            ec,
-                            &PowerLedMode::Animation(BreathConfig::sleep()),
-                        );
-                        read_and_save_state(ec);
-                    }
-
-                    services::InternalEvent::SystemWakingUp => {
-                        let _ = handlers::get_state().map(|state| state.restore_state(ec));
-                    }
-
-                    services::InternalEvent::ChargerConnected => {
-                        if let Ok(current) = ec::read_battery_rsoc(ec) {
-                            if let Ok(charge_limits) = ec::read_charge_limit(ec) {
-                                if current >= charge_limits.1 {
-                                    let _ = ec::apply_battery_leds(ec, false, true);
-                                } else {
-                                    let _ = ec::apply_battery_leds(ec, true, false);
-                                }
-                            }
-                        }
-                    }
-
-                    services::InternalEvent::ChargerDisconnected => {
-                        let _ = ec::apply_battery_leds(ec, false, false);
-                    }
-
-                    #[cfg(windows)]
-                    services::InternalEvent::Inited => {}
-                };
+        match event {
+            services::InternalEvent::SystemShuttingDown | services::InternalEvent::SystemHibernating => {
+                let _ = ec::apply_led_mode(ec, &PowerLedMode::Auto);
+                read_and_save_state(ec);
             }
-            Err(_) => break,
+
+            services::InternalEvent::SystemSleeping => {
+                let _ = ec::apply_led_mode(ec, &PowerLedMode::Animation(BreathConfig::sleep()));
+                read_and_save_state(ec);
+            }
+
+            services::InternalEvent::SystemWakingUp => {
+                let _ = handlers::get_state().map(|state| state.restore_state(ec));
+            }
+
+            services::InternalEvent::ChargerConnected => {
+                if let Ok(state) = handlers::get_state() {
+                    let desired = state.charge;
+                    drop(state);
+                    if let Err(e) = ec::reconcile(ec, &desired) {
+                        log::warn!("charge reconcile on AC connect: {e}");
+                    }
+                }
+                if let Ok(current) = ec::read_battery_rsoc(ec) {
+                    let stop = ec::charge_stop_level(ec);
+                    let _ = ec::apply_battery_leds(ec, current < stop, current >= stop);
+                }
+            }
+
+            services::InternalEvent::ChargerDisconnected => {
+                let _ = ec::apply_battery_leds(ec, false, false);
+            }
+
+            #[cfg(windows)]
+            services::InternalEvent::Inited => {}
+        }
+    }
+}
+
+fn serve_forever(mut server: IpcServer) -> ! {
+    loop {
+        match server.accept() {
+            Ok(conn) => process_ipc_connection(conn),
+            Err(e) => log::error!("Accept error: {}", e),
         }
     }
 }
@@ -126,6 +143,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     // Let's give this MicroSLOP piece of the ~~shit~~ OS time to initialize the service
+    // todo: a bit outdated and doesn't help
     #[cfg(windows)]
     if args.iter().any(|arg| arg == "--service") {
         let _service_worker = services::start(tx_to_core);
@@ -140,14 +158,41 @@ fn main() -> Result<()> {
     #[cfg(not(windows))]
     let _service_worker = services::start(tx_to_core);
 
-    let mut server = IpcServer::bind().map_err(|e| {
-        log::error!("Failed to bind IPC server: {}", e); e
-    })?;
+    let server = IpcServer::bind();
 
     let insecure_mode = args.iter().any(|arg| arg == "--insecure");
-    let ec = ec::EcDevice::new(insecure_mode).map_err(|e| {
-        log::error!("Failed to initialize EC device: {}", e); e
-    })?;
+    let board = services::get_board_name();
+
+    let device = match resolve_profile(&args, &board) {
+        Some(profile) => {
+            log::info!("Detected motherboard {}.", profile.id);
+            Some(ec::EcDevice::new_with_profile(profile, insecure_mode)?)
+        }
+        None => {
+            if insecure_mode {
+                log::error!("--insecure requires an explicit --profile <id>. Known: {}",
+                    ec::PROFILES.iter().map(|p| p.id).collect::<Vec<_>>().join(", "));
+            }
+            None
+        }
+    };
+
+    let Some(ec) = device else {
+        let chip = ec::probe_chip_only()
+            .map(|(id1, id2, ver)| format!("IT{:02X}{:02X}-{:02X}", id1, id2, ver));
+
+        let _ = UNSUPPORTED.set(ipc::UnsupportedInfo {
+            board: board.clone(),
+            chip,
+        });
+        log::error!("Unsupported motherboard: {board}. Serving Unsupported over IPC.");
+        serve_forever(server.context("Failed to bind IPC server")?);
+    };
+
+    if args.iter().any(|a| a == "--dump-profile") {
+        println!("{}", ec::dump_profile(&ec)?);
+        return Ok(());
+    }
 
     let daemon_state = CurrentSettings::load_or_default();
     if let Err(e) = daemon_state.restore_state(&ec) {
@@ -160,9 +205,10 @@ fn main() -> Result<()> {
         let (cpu_name, os_name, motherboard) = services::get_system_info();
 
         let (chip_id1, chip_id2, chip_ver) = ec::read_system_info(&ec)?;
+
         telemetry::send(ipc::TelemetryData::Startup {
             firmware: format!("IT{:02X}{:02X}-{:02X}", chip_id1, chip_id2, chip_ver),
-            offset: ec.hram_offset,
+            offset: ec.hram_offset(),
             cpu: cpu_name,
             os: os_name,
             motherboard,
@@ -174,7 +220,6 @@ fn main() -> Result<()> {
 
     #[cfg(target_os="linux")]
     println!("Daemon started. For reading logs: \"journalctl -t lecoo-daemon -f\"");
-    info!("Daemon started.");
 
     thread::Builder::new()
         .name("daemon-service-listener".into())
@@ -183,12 +228,5 @@ fn main() -> Result<()> {
         })
         .expect("failed to spawn daemon-service-listener");
 
-    loop {
-        match server.accept() {
-            Ok(conn) => {
-                process_ipc_connection(conn);
-            }
-            Err(e) => eprintln!("Accept error: {}", e),
-        }
-    }
+    serve_forever(server.context("Failed to bind IPC server")?);
 }

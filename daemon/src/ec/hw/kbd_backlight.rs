@@ -1,65 +1,60 @@
+use anyhow::{Result, bail};
 use ipc::KeyboardBacklightLevel;
-use anyhow::Result;
 use super::EcDevice;
+use crate::ec::KbdOps;
 
 pub fn read_keyboard_backlight(ec: &EcDevice) -> Result<KeyboardBacklightLevel> {
-    if ec.offsets.kbd_backlight_pwm { // todo: improve this
-        return match ec.read_reg(ec.offsets.reg_kbd_backlight)? {
-            0x00 => Ok(KeyboardBacklightLevel::Off),
-            0x4C => Ok(KeyboardBacklightLevel::Low),
-            0x99 => Ok(KeyboardBacklightLevel::Medium),
-            0xFF => Ok(KeyboardBacklightLevel::High),
-            v => Ok(KeyboardBacklightLevel::Custom(v)),
-        };
-    }
+    use KeyboardBacklightLevel as L;
+    match ec.profile.kbd {
+        KbdOps::None => bail!("Board {} has no controllable keyboard backlight", ec.profile.id),
 
-    match ec.read_reg(ec.offsets.reg_kbd_backlight)? {
-        0x00 => Ok(KeyboardBacklightLevel::Off),
-        0x01 => Ok(KeyboardBacklightLevel::Low),
-        0x02 => Ok(KeyboardBacklightLevel::Medium),
-        0x03 => Ok(KeyboardBacklightLevel::High),
-        0xFF => {
-            let custom_value = ec.read_reg(ec.offsets.reg_kbd_custom_val)?;
-            Ok(KeyboardBacklightLevel::Custom(custom_value))
-        }
+        KbdOps::PwmDuty { reg } => Ok(match ec.read(reg)? {
+            0x00 => L::Off,
+            0x4C => L::Low,
+            0x99 => L::Medium,
+            0xFF => L::High,
+            v => L::Custom(v),
+        }),
 
-        v => Err(anyhow::anyhow!("Invalid keyboard backlight level: {:#04x}", v)),
+        // todo: not every revision supports all levels!!!!! fix it later
+        KbdOps::Levels { reg, custom_val, .. } => match ec.read(reg)? {
+            0x00 => Ok(L::Off),
+            0x01 => Ok(L::Low),
+            0x02 => Ok(L::Medium),
+            0x03 => Ok(L::High),
+            0xFF => Ok(L::Custom(ec.read(custom_val)?)),
+            v => bail!("Invalid keyboard backlight level: {:#04x}", v),
+        },
     }
 }
 
 pub fn apply_keyboard_backlight(ec: &EcDevice, level: &KeyboardBacklightLevel) -> Result<()> {
-    let addr = ec.offsets.reg_kbd_backlight;
+    use KeyboardBacklightLevel as L;
+    match ec.profile.kbd {
+        KbdOps::None => bail!("Board {} has no controllable keyboard backlight", ec.profile.id),
 
-    if ec.offsets.kbd_backlight_pwm { // todo: improve this
-        let value = match level {
-            KeyboardBacklightLevel::Off => 0x00,
-            KeyboardBacklightLevel::Low => 0x4C,
-            KeyboardBacklightLevel::Medium => 0x99,
-            KeyboardBacklightLevel::High => 0xFF,
-            KeyboardBacklightLevel::Custom(v) => *v,
-        };
-        ec.write_reg(addr, value)?;
-        return Ok(());
-    }
-
-    match level {
-        KeyboardBacklightLevel::Off => ec.write_reg(addr, 0x00)?,
-        KeyboardBacklightLevel::Low => ec.write_reg(addr, 0x01)?,
-        KeyboardBacklightLevel::Medium => ec.write_reg(addr, 0x02)?,
-        KeyboardBacklightLevel::High => ec.write_reg(addr, 0x03)?,
-        KeyboardBacklightLevel::Custom(v) => {
-            ec.with_batch(|b| {
-                // disable kdb timer
-                b.write_ram(b.offsets.ram_kbd_bypass_timeout, 0xFF)?;
-                // and enable PWM
-                b.write_reg(b.offsets.reg_gpio_a4_mux, 0x00)?;
-
-                // set custom value
-                b.write_reg(addr, 0xFF)?;
-                b.write_reg(b.offsets.reg_kbd_custom_val, *v)
-            })?;
+        KbdOps::PwmDuty { reg } => {
+            let value = match level {
+                L::Off => 0x00,
+                L::Low => 0x4C,
+                L::Medium => 0x99,
+                L::High => 0xFF,
+                L::Custom(v) => *v,
+            };
+            ec.write(reg, value)
         }
-    }
 
-    Ok(())
+        KbdOps::Levels { reg, custom_val, bypass_timeout, mux } => match level {
+            L::Off => ec.write(reg, 0x00),
+            L::Low => ec.write(reg, 0x01),
+            L::Medium => ec.write(reg, 0x02),
+            L::High => ec.write(reg, 0x03),
+            L::Custom(v) => ec.with_batch(|b| {
+                b.write(bypass_timeout, 0xFF)?;
+                b.write(mux, 0x00)?;
+                b.write(reg, 0xFF)?;
+                b.write(custom_val, *v)
+            }),
+        },
+    }
 }

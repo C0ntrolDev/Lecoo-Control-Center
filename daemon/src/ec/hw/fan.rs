@@ -3,24 +3,24 @@ use ipc::{FanIndex, FanMode};
 use super::EcDevice;
 
 pub fn apply_fan_mode(ec: &EcDevice, fan: &FanIndex, mode: &FanMode) -> Result<()> {
-    let thermal_policy_override: u16 = match fan {
-        FanIndex::Cpu => ec.offsets.ram_thermal_policy_cpu,
-        FanIndex::Gpu => ec.offsets.ram_thermal_policy_gpu,
+    let Some(spec) = ec.profile.fan(*fan) else {
+        bail!("Board {} has no {:?} fan", ec.profile.id, fan);
     };
 
     let (policy, duty) = match mode {
-        FanMode::Auto => (0x00, 0),
-        FanMode::Full => (0x40, 150),
+        FanMode::Auto => (spec.policy_auto, 0),
+        FanMode::Full => (spec.policy_manual, spec.duty_full),
+        FanMode::Turbo => (spec.policy_manual, spec.duty_max),
         FanMode::Custom(d) => {
-            if *d > 220 {
-                bail!("Requested fan duty cycle ({}) exceeds safe limit (220).", d);
+            if *d > spec.duty_max {
+                bail!("Requested fan duty cycle ({}) exceeds safe limit ({}).", d, spec.duty_max);
             }
-            (0x40, *d)
+            (spec.policy_manual, *d)
         }
     };
 
     ec.with_batch(|b| {
-        b.write_ram(thermal_policy_override, policy)?;
-        b.write_ram(*fan as u16, duty)
+        b.write(spec.policy, policy)?;
+        b.write(spec.duty, duty)
     })
 }
