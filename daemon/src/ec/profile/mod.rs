@@ -2,6 +2,9 @@ use ipc::{ChargeIntent, FanIndex, PowerProfile, SensorRole};
 
 mod boards;
 mod caps;
+#[cfg(test)]
+mod tests;
+
 pub use boards::{PROFILES, by_id, detect};
 
 /// Address in EC space. The variant decides how it is resolved, which is the
