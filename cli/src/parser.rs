@@ -1,0 +1,359 @@
+//! Custom CLI Parser using `lexopt`.
+//! 
+//! Why aren't we using `clap`?
+//! `clap` requires the entire CLI structure (commands, arguments, possible values)
+//! to be statically defined at compile time. However, this application heavily relies 
+//! on dynamic hardware capabilities retrieved via IPC (e.g., supported charge presets, 
+//! power profiles). Injecting dynamic states into `clap`'s static tree requires 
+//! extensive hacks and defeats the purpose of the library.
+//! 
+//! By using `lexopt`, we maintain a lightweight, stream-based parsing approach. 
+//! It allows us to manually parse arguments based on the daemon's runtime `Capabilities`
+//! while keeping the binary size incredibly lean, compile times fast, and providing 
+//! a completely dynamic `--help` output that actually matches the user's hardware.
+
+use ipc::{
+    Capabilities, ChargeIntent, ChargeRange, FanMode, KeyboardBacklightLevel,
+    PowerLedMode, PowerProfile,
+};
+use lexopt::prelude::*;
+use rust_i18n::t;
+
+
+#[derive(Debug, Clone)]
+pub enum FanTarget {
+    Cpu,
+    Gpu,
+    Both,
+}
+
+#[derive(Debug, Clone)]
+pub enum DaemonSubcommand {
+    TelemetryEnable,
+    TelemetryDisable,
+    TelemetryId,
+    SettingsReset,
+    SettingsRead,
+    SettingsApply,
+    Version,
+}
+
+#[derive(Debug, Clone)]
+pub enum CliCommand {
+    Info,
+    Temps,
+    Fans,
+    Monitoring { rate: Option<f32> },
+    Power { profile: Option<PowerProfile> },
+    Fan { target: FanTarget, mode: FanMode },
+    Charge { intent: Option<ChargeIntent> },
+    Kbd { level: Option<KeyboardBacklightLevel> },
+    Led { mode: PowerLedMode },
+    Daemon(DaemonSubcommand),
+    Help { target: Option<String> },
+    Version,
+}
+
+#[derive(Debug)]
+pub struct ParseError {
+    pub message: String,
+    pub command: Option<String>,
+}
+
+
+
+macro_rules! parse_bail {
+    ($cmd:expr, $($arg:tt)*) => {
+        return Err(ParseError {
+            message: format!($($arg)*),
+            command: $cmd.clone(),
+        })
+    };
+}
+
+pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError> {
+    let mut parser = lexopt::Parser::from_env();
+
+    let mut command_name: Option<String> = None;
+    let mut args: Vec<String> = Vec::new();
+    let mut min_val: Option<u8> = None;
+    let mut max_val: Option<u8> = None;
+    let mut rate_val: Option<f32> = None;
+    let mut wants_help = false;
+
+    while let Some(arg) = parser.next().map_err(|e| ParseError {
+        message: e.to_string(),
+        command: command_name.clone(),
+    })? {
+        match arg {
+            Short('h') | Long("help") => {
+                wants_help = true;
+            }
+            Short('v') | Long("version") => return Ok(CliCommand::Version),
+            Long("min") => {
+                let val_str = parser.value().map_err(|e| ParseError {
+                    message: e.to_string(),
+                    command: command_name.clone(),
+                })?;
+                let v: u8 = val_str.parse().map_err(|_| ParseError {
+                    message: "Invalid value for --min".into(),
+                    command: command_name.clone(),
+                })?;
+                min_val = Some(v);
+            }
+            Long("max") => {
+                let val_str = parser.value().map_err(|e| ParseError {
+                    message: e.to_string(),
+                    command: command_name.clone(),
+                })?;
+                let v: u8 = val_str.parse().map_err(|_| ParseError {
+                    message: "Invalid value for --max".into(),
+                    command: command_name.clone(),
+                })?;
+                max_val = Some(v);
+            }
+            Long("rate") => {
+                let val_str = parser.value().map_err(|e| ParseError {
+                    message: e.to_string(),
+                    command: command_name.clone(),
+                })?;
+                let v: f32 = val_str.parse().map_err(|_| ParseError {
+                    message: "Invalid value for --rate".into(),
+                    command: command_name.clone(),
+                })?;
+                rate_val = Some(v);
+            }
+            Value(val) => {
+                let s = val.into_string().map_err(|_| ParseError {
+                    message: "Invalid string argument".into(),
+                    command: command_name.clone(),
+                })?;
+                if command_name.is_none() {
+                    if s.eq_ignore_ascii_case("help") {
+                        wants_help = true;
+                    } else {
+                        command_name = Some(s);
+                    }
+                } else {
+                    args.push(s);
+                }
+            }
+            _ => {
+                return Err(ParseError {
+                    message: arg.unexpected().to_string(),
+                    command: command_name.clone(),
+                })
+            }
+        }
+    }
+
+    if wants_help {
+        return Ok(CliCommand::Help {
+            target: command_name.or_else(|| args.first().cloned()),
+        });
+    }
+
+    let Some(cmd) = command_name else {
+        return Ok(CliCommand::Help { target: None });
+    };
+
+    let cmd_ctx = Some(cmd.clone());
+
+    match cmd.to_lowercase().as_str() {
+        "info" => Ok(CliCommand::Info),
+        "temps" => Ok(CliCommand::Temps),
+        "fans" => Ok(CliCommand::Fans),
+        "monitoring" => {
+            let rate = rate_val.or_else(|| args.first().and_then(|s| s.parse().ok()));
+            Ok(CliCommand::Monitoring { rate })
+        }
+
+        "power" => {
+            if let Some(p_str) = args.first() {
+                let profile = match p_str.to_lowercase().as_str() {
+                    "silent" => PowerProfile::Silent,
+                    "default" => PowerProfile::Default,
+                    "perf" | "performance" => PowerProfile::Performance,
+                    _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = p_str, arg = "[PROFILE]")),
+                };
+                Ok(CliCommand::Power { profile: Some(profile) })
+            } else {
+                Ok(CliCommand::Power { profile: None })
+            }
+        }
+
+        "fan" => {
+            let target_str = args.first().ok_or_else(|| ParseError {
+                message: t!("err_missing_args", args = "  <TARGET>\n  <MODE>").into(),
+                command: cmd_ctx.clone(),
+            })?;
+
+            let mode_str = args.get(1).ok_or_else(|| ParseError {
+                message: t!("err_missing_args", args = "  <MODE>").into(),
+                command: cmd_ctx.clone(),
+            })?;
+
+            let target = match target_str.to_lowercase().as_str() {
+                "cpu" => FanTarget::Cpu,
+                "gpu" => FanTarget::Gpu,
+                "both" => FanTarget::Both,
+                _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = target_str, arg = "<TARGET>")),
+            };
+
+            let mode = match mode_str.to_lowercase().as_str() {
+                "auto" => FanMode::Auto,
+                "full" => FanMode::Full,
+                "turbo" => FanMode::Turbo,
+                "custom" => {
+                    let val_str = args.get(2).ok_or_else(|| ParseError {
+                        message: t!("err_missing_args", args = "  [PWM_VAL]").into(),
+                        command: cmd_ctx.clone(),
+                    })?;
+                    let pwm: u8 = val_str.parse().map_err(|_| ParseError {
+                        message: t!("err_invalid_value", val = val_str, arg = "[PWM_VAL]").into(),
+                        command: cmd_ctx.clone(),
+                    })?;
+                    FanMode::Custom(pwm)
+                }
+                _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = mode_str, arg = "<MODE>")),
+            };
+
+            Ok(CliCommand::Fan { target, mode })
+        }
+
+        "charge" => {
+            if let (Some(min), Some(max)) = (min_val, max_val) {
+                return Ok(CliCommand::Charge {
+                    intent: Some(ChargeIntent::Preserve(Some(ChargeRange { min, max }))),
+                });
+            }
+
+            if let Some(preset_str) = args.first() {
+                let preset_name = preset_str.to_lowercase();
+
+                if let Some(c) = caps {
+                    if let Some((_, intent)) = c.charge.presets.iter().find(|(name, _)| name.eq_ignore_ascii_case(&preset_name)) {
+                        return Ok(CliCommand::Charge { intent: Some(*intent) });
+                    }
+                }
+
+                let intent = match preset_name.as_str() {
+                    "full" => ChargeIntent::Full,
+                    "high" => ChargeIntent::Preserve(Some(ChargeRange { min: 90, max: 95 })),
+                    "balanced" => ChargeIntent::Preserve(Some(ChargeRange { min: 70, max: 80 })),
+                    "lifespan" => ChargeIntent::Preserve(Some(ChargeRange { min: 55, max: 60 })),
+                    "desk" => ChargeIntent::Preserve(Some(ChargeRange { min: 40, max: 50 })),
+                    "hold" | "freeze" => ChargeIntent::Freeze,
+                    _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = preset_str, arg = "[PRESET]")),
+                };
+                Ok(CliCommand::Charge { intent: Some(intent) })
+            } else {
+                Ok(CliCommand::Charge { intent: None })
+            }
+        }
+
+        "kbd" => {
+            if let Some(mode_str) = args.first() {
+                let level = match mode_str.to_lowercase().as_str() {
+                    "off" => KeyboardBacklightLevel::Off,
+                    "low" => KeyboardBacklightLevel::Low,
+                    "medium" => KeyboardBacklightLevel::Medium,
+                    "high" => KeyboardBacklightLevel::High,
+                    "custom" => {
+                        let val_str = args.get(1).ok_or_else(|| ParseError {
+                            message: t!("err_missing_args", args = "  [PWM_VAL]").into(),
+                            command: cmd_ctx.clone(),
+                        })?;
+                        let v: u8 = val_str.parse().map_err(|_| ParseError {
+                            message: t!("err_invalid_value", val = val_str, arg = "[PWM_VAL]").into(),
+                            command: cmd_ctx.clone(),
+                        })?;
+                        KeyboardBacklightLevel::Custom(v)
+                    }
+                    _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = mode_str, arg = "[MODE]")),
+                };
+                Ok(CliCommand::Kbd { level: Some(level) })
+            } else {
+                Ok(CliCommand::Kbd { level: None })
+            }
+        }
+
+        "led" => {
+            let action_str = args.first().ok_or_else(|| ParseError {
+                message: t!("err_missing_args", args = "  <auto|custom>").into(),
+                command: cmd_ctx.clone(),
+            })?;
+            let mode = match action_str.to_lowercase().as_str() {
+                "auto" => PowerLedMode::Auto,
+                "custom" => {
+                    let val_str = args.get(1).ok_or_else(|| ParseError {
+                        message: t!("err_missing_args", args = "  [PWM_VAL]").into(),
+                        command: cmd_ctx.clone(),
+                    })?;
+                    let v: u8 = val_str.parse().map_err(|_| ParseError {
+                        message: t!("err_invalid_value", val = val_str, arg = "[PWM_VAL]").into(),
+                        command: cmd_ctx.clone(),
+                    })?;
+                    PowerLedMode::Custom(v)
+                }
+                _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = action_str, arg = "<auto|custom>")),
+            };
+            Ok(CliCommand::Led { mode })
+        }
+
+        "daemon" => {
+            let sub = args.first().ok_or_else(|| ParseError {
+                message: t!("err_missing_args", args = "  <SUBCOMMAND>").into(),
+                command: cmd_ctx.clone(),
+            })?;
+            let daemon_sub = match sub.to_lowercase().as_str() {
+                "version" => DaemonSubcommand::Version,
+                "telemetry" => {
+                    let action = args.get(1).ok_or_else(|| ParseError {
+                        message: t!("err_missing_args", args = "  <enable|disable|id>").into(),
+                        command: cmd_ctx.clone(),
+                    })?;
+                    match action.to_lowercase().as_str() {
+                        "enable" => DaemonSubcommand::TelemetryEnable,
+                        "disable" => DaemonSubcommand::TelemetryDisable,
+                        "id" => DaemonSubcommand::TelemetryId,
+                        _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = action, arg = "<enable|disable|id>")),
+                    }
+                }
+                "settings" => {
+                    let action = args.get(1).ok_or_else(|| ParseError {
+                        message: t!("err_missing_args", args = "  <reset|read|apply>").into(),
+                        command: cmd_ctx.clone(),
+                    })?;
+                    match action.to_lowercase().as_str() {
+                        "reset" => DaemonSubcommand::SettingsReset,
+                        "read" => DaemonSubcommand::SettingsRead,
+                        "apply" => DaemonSubcommand::SettingsApply,
+                        _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = action, arg = "<reset|read|apply>")),
+                    }
+                }
+                _ => parse_bail!(cmd_ctx, "{}", t!("err_unrecognized_subcmd", cmd = sub)),
+            };
+            Ok(CliCommand::Daemon(daemon_sub))
+        }
+
+                _ => {
+                    let known_commands = ["info", "temps", "fans", "monitoring", "fan", "charge", "power", "kbd", "led", "daemon", "help"];
+                    let mut best_match = None;
+                    let mut best_dist = usize::MAX;
+                    for k in known_commands {
+                        let dist = strsim::levenshtein(&cmd, k);
+                        if dist < best_dist && dist <= 2 {
+                            best_dist = dist;
+                            best_match = Some(k);
+                        }
+                    }
+
+                    if let Some(suggestion) = best_match {
+                        parse_bail!(None, "{}\n\n{}", t!("err_unrecognized_cmd", cmd = cmd), t!("err_did_you_mean", suggestion = suggestion));
+                    } else {
+                        parse_bail!(None, "{}", t!("err_unrecognized_cmd", cmd = cmd));
+                    }
+                }
+    }
+}

@@ -48,6 +48,7 @@ arg_fan_target_both_help: "Both CPU and GPU fans"
 # Fan Mode Values Help
 arg_fan_mode_auto_help: "Automatic EC control"
 arg_fan_mode_full_help: "Full speed (100%)"
+arg_fan_mode_turbo_help: "Turbo mode (Max speed, Unsafe!)"
 arg_fan_mode_custom_help: "Custom PWM duty cycle"
 
 # Keyboard Backlight Values Help
@@ -63,6 +64,7 @@ arg_charge_limit_high_help: "High capacity (95%)"
 arg_charge_limit_balanced_help: "Balanced mode (80%)"
 arg_charge_limit_lifespan_help: "Maximum battery lifespan (60%)"
 arg_charge_limit_desk_help: "Desk mode (40%)"
+arg_charge_limit_freeze_help: "Freeze charging at current level"
 
 arg_charge_limit_long_help: |
   Set battery charge limit mode (FlexiCharger).
@@ -73,6 +75,7 @@ arg_charge_limit_long_help: |
     - balanced: Balanced mode (80%)
     - lifespan: Maximum battery lifespan (60%)
     - desk:     Desk mode (40%)
+    - freeze:   Freeze charging at current level
 
 # Messages & Errors
 err_daemon_connection: "Failed to connect to daemon! Is it running?"
@@ -90,9 +93,45 @@ resp_charge_title: "🔋 Charge Limit (FlexiCharger):"
 resp_charge_full: "   Mode: Full Capacity (Charges to 100%)"
 resp_charge_range: "   Start charging at: %{min}%\n   Stop charging at:  %{max}%"
 resp_charge_current: "   Current Battery Charge: %{cur}%"
+resp_charge_status_title: "🔋 Charge Status:"
+resp_charge_status_desired: "   Desired:   %{intent}"
+resp_charge_status_effective: "   Effective: %{intent}"
+resp_charge_status_battery: "   Battery:   %{soc}%"
+resp_charge_status_pending: "   Pending:   %{reason}"
+resp_charge_intent_full: "Full Capacity"
+resp_charge_intent_preserve: "Preserve (%{min}% .. %{max}%)"
+resp_charge_intent_preserve_auto: "Preserve (Firmware Controlled)"
+resp_charge_intent_freeze: "Freeze (Hold Charge)"
 resp_power_title: "⚡ Power Profile:"
 resp_power_current: "   Current: %{prof}"
 resp_telemetry_disabled: |
   🔗 Anonymous Telemetry Disabled. Telemetry helps me improve the quality of this project.
   Please consider enabling it, it's free and anonymous :)
 resp_telemetry_id: "🔗 Telemetry ID: 0x%{id}"
+
+# Help Labels
+help_usage: "Usage:"
+help_commands: "Commands:"
+help_capabilities: "Hardware Capabilities (Board: %{board}):"
+help_options: "Options:"
+help_note_offline: "Note: Connect to daemon for hardware-specific capabilities."
+help_cmd_help_about: "Show help for application or command"
+help_arguments: "Arguments:"
+help_possible_values: "Possible values:"
+help_custom_range: "Custom Range:"
+help_subcommands: "Subcommands:"
+help_more_info: "For more information, try '%{help}'"
+help_charge_presets: "Charge Presets:"
+help_power_profiles: "Power Profiles:"
+
+err_missing_args: "the following required arguments were not provided:\n%{args}"
+err_invalid_value: "invalid value '%{val}' for '%{arg}'"
+err_unrecognized_cmd: "unrecognized command '%{cmd}'"
+err_unrecognized_subcmd: "unrecognized subcommand '%{cmd}'"
+err_did_you_mean: "Did you mean '%{suggestion}'?"
+warn_fan_turbo: "⚠️ WARNING: Turbo mode operates fans at extreme speeds (~6500 RPM).\nProlonged use will lead to rapid fan wear and degradation. Use with caution!"
+msg_precondition: "⚠️ Precondition: %{reason}"
+msg_unsupported_title: "⚠️ Unsupported Board: %{board}"
+msg_unsupported_hint: "Board is not supported. To help add support, run: lecoo-ctrl selftest --insecure --profile <closest board>"
+
+# Responses

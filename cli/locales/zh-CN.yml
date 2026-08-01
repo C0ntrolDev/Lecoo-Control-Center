@@ -46,9 +46,10 @@ arg_fan_target_gpu_help: "GPU风扇"
 arg_fan_target_both_help: "CPU和GPU风扇"
 
 # 风扇模式值帮助
-arg_fan_mode_auto_help: "自动EC控制"
+arg_fan_mode_auto_help: "EC 自动控制"
 arg_fan_mode_full_help: "全速（100%）"
-arg_fan_mode_custom_help: "自定义PWM占空比"
+arg_fan_mode_turbo_help: "涡轮模式（最高速度，不安全！）"
+arg_fan_mode_custom_help: "自定义 PWM 占空比"
 
 # 键盘背光值帮助
 arg_kbd_mode_off_help: "关闭背光"
@@ -63,6 +64,7 @@ arg_charge_limit_high_help: "高容量（95%）"
 arg_charge_limit_balanced_help: "平衡模式（80%）"
 arg_charge_limit_lifespan_help: "最大电池寿命（60%）"
 arg_charge_limit_desk_help: "桌面模式（40%）"
+arg_charge_limit_freeze_help: "在当前电量停止充电"
 
 arg_charge_limit_long_help: |
   设置电池充电限制模式（FlexiCharger）。
@@ -73,6 +75,7 @@ arg_charge_limit_long_help: |
     - balanced: 平衡模式（80%）
     - lifespan: 最大电池寿命（60%）
     - desk:     桌面模式（40%）
+    - freeze:   在当前电量停止充电
 
 # 消息和错误
 err_daemon_connection: "连接守护进程失败！它是否正在运行？"
@@ -90,9 +93,43 @@ resp_charge_title: "🔋 充电限制 (FlexiCharger):"
 resp_charge_full: "   模式: 全容量（充电至100%）"
 resp_charge_range: "   开始充电: %{min}%\n   停止充电:  %{max}%"
 resp_charge_current: "   当前电池电量: %{cur}%"
+resp_charge_status_title: "🔋 充电状态:"
+resp_charge_status_desired: "   目标:   %{intent}"
+resp_charge_status_effective: "   生效:   %{intent}"
+resp_charge_status_battery: "   电池:   %{soc}%"
+resp_charge_status_pending: "   等待:   %{reason}"
+resp_charge_intent_full: "满容量"
+resp_charge_intent_preserve: "保护模式 (%{min}% .. %{max}%)"
+resp_charge_intent_preserve_auto: "保护模式 (固件控制)"
+resp_charge_intent_freeze: "冻结充电"
 resp_power_title: "⚡ 电源配置:"
 resp_power_current: "   当前: %{prof}"
 resp_telemetry_disabled: |
   🔗 匿名遥测已禁用。遥测帮助我改进此项目的质量。
   请考虑启用它，它是免费且匿名的 :)
 resp_telemetry_id: "🔗 遥测ID: 0x%{id}"
+
+# Help Labels
+help_usage: "用法:"
+help_commands: "命令:"
+help_capabilities: "硬件能力 (主板: %{board}):"
+help_options: "选项:"
+help_note_offline: "注意: 连接到守护进程以获取特定于硬件的能力。"
+help_cmd_help_about: "显示应用程序或命令的帮助"
+help_arguments: "参数:"
+help_possible_values: "可选值:"
+help_custom_range: "自定义范围:"
+help_subcommands: "子命令:"
+help_more_info: "获取更多信息，请尝试 '%{help}'"
+help_charge_presets: "充电预设:"
+help_power_profiles: "电源配置文件:"
+
+err_missing_args: "未提供以下必需参数：\n%{args}"
+err_invalid_value: "'%{arg}' 的值 '%{val}' 无效"
+err_unrecognized_cmd: "无法识别的命令 '%{cmd}'"
+err_unrecognized_subcmd: "无法识别的子命令 '%{cmd}'"
+err_did_you_mean: "您是想输入 '%{suggestion}' 吗？"
+warn_fan_turbo: "⚠️ 警告：涡轮模式会让风扇在极限转速（约 6500 RPM）下运行。\n长时间使用会导致风扇快速磨损。请谨慎使用！"
+msg_precondition: "⚠️ 前置条件: %{reason}"
+msg_unsupported_title: "⚠️ 不支持的主板: %{board}"
+msg_unsupported_hint: "主板不受支持。如需协助添加支持，请运行: lecoo-ctrl selftest --insecure --profile <最接近的主板>"

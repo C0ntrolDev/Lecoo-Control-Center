@@ -9,11 +9,12 @@ edition = "2024"
 
 [dependencies]
 ipc = { path = "../ipc" }
-clap = { version = "4.6", features = ["derive"] }
+lexopt = "0.3"
 anyhow = "1.0"
 rust-i18n = "3"
 sys-locale = "0.3"
+strsim = "0.11.1"
 
 [package.metadata.i18n]
-available-locales = ["en", "ru"]
+available-locales = ["en", "ru", "zh-CN"]
 default-locale = "en"
