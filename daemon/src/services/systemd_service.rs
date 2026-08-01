@@ -5,12 +5,28 @@ use zbus::blocking::Connection;
 use super::InternalEvent;
 
 pub fn init_logger() {
-    systemd_journal_logger::JournalLog::new()
-        .unwrap()
-        .with_extra_fields(vec![("VERSION", crate::VERSION)])
-        .with_syslog_identifier("lecoo-daemon".to_string())
-        .install().unwrap();
-    log::set_max_level(log::LevelFilter::Info);
+    let is_systemd = std::env::var("JOURNAL_STREAM").is_ok() || std::env::var("INVOCATION_ID").is_ok();
+
+    if is_systemd {
+        systemd_journal_logger::JournalLog::new()
+            .unwrap()
+            .with_extra_fields(vec![("VERSION", crate::VERSION)])
+            .with_syslog_identifier("lecoo-daemon".to_string())
+            .install().unwrap();
+        log::set_max_level(log::LevelFilter::Info);
+    } else {
+        use simplelog::{Config, LevelFilter, TermLogger, TerminalMode, ColorChoice};
+        TermLogger::init(
+            LevelFilter::Info,
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ).unwrap_or_else(|_| {
+            // fallback
+            simplelog::SimpleLogger::init(LevelFilter::Info, Config::default())
+                .unwrap_or_else(|err| eprintln!("Failed to init fallback logger: {}", err));
+        });
+    }
 
     panic::set_hook(Box::new(|panic_info| {
         let location = panic_info.location().unwrap();
