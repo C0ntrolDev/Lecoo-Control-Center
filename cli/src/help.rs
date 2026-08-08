@@ -92,17 +92,13 @@ pub fn print_help(target: Option<&str>, caps: Option<&Capabilities>) {
             println!("          {}", t!("arg_fan_target_help"));
             println!();
             println!("          {}", t!("help_possible_values"));
-            println!("          - {}cpu{}:  {}", bold(), reset(), t!("arg_fan_target_cpu_help"));
-            println!("          - {}gpu{}:  {}", bold(), reset(), t!("arg_fan_target_gpu_help"));
-            println!("          - {}both{}: {}", bold(), reset(), t!("arg_fan_target_both_help"));
+            crate::defs::help_fan_target();
             println!();
             println!("  {}<MODE>{}", bold(), reset());
             println!("          {}", t!("arg_fan_mode_help"));
             println!();
             println!("          {}", t!("help_possible_values"));
-            println!("          - {}auto{}:   {}", bold(), reset(), t!("arg_fan_mode_auto_help"));
-            println!("          - {}full{}:   {}", bold(), reset(), t!("arg_fan_mode_full_help"));
-            println!("          - {}turbo{}:  {}", bold(), reset(), t!("arg_fan_mode_turbo_help"));
+            crate::defs::help_fan_mode();
             println!("          - {}custom{}: {}", bold(), reset(), t!("arg_fan_mode_custom_help"));
             println!();
             println!("  {}[PWM_VAL]{}", bold(), reset());
@@ -162,9 +158,7 @@ pub fn print_help(target: Option<&str>, caps: Option<&Capabilities>) {
             println!("          {}", t!("arg_power_profile_help"));
             println!();
             println!("          {}", t!("help_possible_values"));
-            println!("          - {}silent{}:  {}", bold(), reset(), t!("arg_power_profile_silent_help"));
-            println!("          - {}default{}: {}", bold(), reset(), t!("arg_power_profile_default_help"));
-            println!("          - {}perf{}:    {}", bold(), reset(), t!("arg_power_profile_perf_help"));
+            crate::defs::help_power_profile();
             println!();
             print_options();
         }
@@ -178,10 +172,7 @@ pub fn print_help(target: Option<&str>, caps: Option<&Capabilities>) {
             println!("          {}", t!("arg_kbd_mode_help"));
             println!();
             println!("          {}", t!("help_possible_values"));
-            println!("          - {}off{}:    {}", bold(), reset(), t!("arg_kbd_mode_off_help"));
-            println!("          - {}low{}:    {}", bold(), reset(), t!("arg_kbd_mode_low_help"));
-            println!("          - {}medium{}: {}", bold(), reset(), t!("arg_kbd_mode_medium_help"));
-            println!("          - {}high{}:   {}", bold(), reset(), t!("arg_kbd_mode_high_help"));
+            crate::defs::help_kbd_level();
             println!("          - {}custom{}: {}", bold(), reset(), t!("arg_kbd_mode_custom_help"));
             println!();
             println!("  {}[PWM_VAL]{}", bold(), reset());
@@ -197,7 +188,7 @@ pub fn print_help(target: Option<&str>, caps: Option<&Capabilities>) {
             println!("{}{} {}", bold_underline(), t!("help_arguments"), reset());
             println!("  {}<auto|custom>{}", bold(), reset());
             println!("          {}", t!("help_possible_values"));
-            println!("          - {}auto{}:   {}", bold(), reset(), t!("cmd_led_auto_about"));
+            crate::defs::help_led_mode();
             println!("          - {}custom{}: {}", bold(), reset(), t!("cmd_led_custom_about"));
             println!();
             println!("  {}[PWM_VAL]{}", bold(), reset());

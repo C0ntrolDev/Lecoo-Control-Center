@@ -6,10 +6,12 @@ use ipc::{
     IpcResponse, ChargeIntent, FanMode
 };
 
+mod defs;
 mod help;
 mod parser;
 
-use parser::{CliCommand, DaemonSubcommand, FanTarget};
+use defs::FanTarget;
+use parser::{CliCommand, DaemonSubcommand};
 
 rust_i18n::i18n!("locales", fallback = "en");
 use rust_i18n::t;

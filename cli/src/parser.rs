@@ -20,12 +20,10 @@ use lexopt::prelude::*;
 use rust_i18n::t;
 
 
-#[derive(Debug, Clone)]
-pub enum FanTarget {
-    Cpu,
-    Gpu,
-    Both,
-}
+use crate::defs::{
+    parse_fan_mode, parse_fan_target, parse_kbd_level, parse_led_mode, parse_power_profile,
+    parse_u8_arg, require_arg, FanTarget, ParseError,
+};
 
 #[derive(Debug, Clone)]
 pub enum DaemonSubcommand {
@@ -50,14 +48,9 @@ pub enum CliCommand {
     Kbd { level: Option<KeyboardBacklightLevel> },
     Led { mode: PowerLedMode },
     Daemon(DaemonSubcommand),
+    HwTest,
     Help { target: Option<String> },
     Version,
-}
-
-#[derive(Debug)]
-pub struct ParseError {
-    pub message: String,
-    pub command: Option<String>,
 }
 
 
@@ -170,12 +163,7 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
 
         "power" => {
             if let Some(p_str) = args.first() {
-                let profile = match p_str.to_lowercase().as_str() {
-                    "silent" => PowerProfile::Silent,
-                    "default" => PowerProfile::Default,
-                    "perf" | "performance" => PowerProfile::Performance,
-                    _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = p_str, arg = "[PROFILE]")),
-                };
+                let profile = parse_power_profile(p_str, "[PROFILE]", &cmd_ctx)?;
                 Ok(CliCommand::Power { profile: Some(profile) })
             } else {
                 Ok(CliCommand::Power { profile: None })
@@ -183,39 +171,16 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
         }
 
         "fan" => {
-            let target_str = args.first().ok_or_else(|| ParseError {
-                message: t!("err_missing_args", args = "  <TARGET>\n  <MODE>").into(),
-                command: cmd_ctx.clone(),
-            })?;
+            let target_str = require_arg(&args, 0, "<TARGET>\n  <MODE>", &cmd_ctx)?;
+            let mode_str = require_arg(&args, 1, "<MODE>", &cmd_ctx)?;
 
-            let mode_str = args.get(1).ok_or_else(|| ParseError {
-                message: t!("err_missing_args", args = "  <MODE>").into(),
-                command: cmd_ctx.clone(),
-            })?;
+            let target = parse_fan_target(target_str, "<TARGET>", &cmd_ctx)?;
 
-            let target = match target_str.to_lowercase().as_str() {
-                "cpu" => FanTarget::Cpu,
-                "gpu" => FanTarget::Gpu,
-                "both" => FanTarget::Both,
-                _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = target_str, arg = "<TARGET>")),
-            };
-
-            let mode = match mode_str.to_lowercase().as_str() {
-                "auto" => FanMode::Auto,
-                "full" => FanMode::Full,
-                "turbo" => FanMode::Turbo,
-                "custom" => {
-                    let val_str = args.get(2).ok_or_else(|| ParseError {
-                        message: t!("err_missing_args", args = "  [PWM_VAL]").into(),
-                        command: cmd_ctx.clone(),
-                    })?;
-                    let pwm: u8 = val_str.parse().map_err(|_| ParseError {
-                        message: t!("err_invalid_value", val = val_str, arg = "[PWM_VAL]").into(),
-                        command: cmd_ctx.clone(),
-                    })?;
-                    FanMode::Custom(pwm)
-                }
-                _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = mode_str, arg = "<MODE>")),
+            let mode = if mode_str.eq_ignore_ascii_case("custom") {
+                let pwm = parse_u8_arg(&args, 2, "[PWM_VAL]", &cmd_ctx)?;
+                FanMode::Custom(pwm)
+            } else {
+                parse_fan_mode(mode_str, "<MODE>", &cmd_ctx)?
             };
 
             Ok(CliCommand::Fan { target, mode })
@@ -254,23 +219,11 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
 
         "kbd" => {
             if let Some(mode_str) = args.first() {
-                let level = match mode_str.to_lowercase().as_str() {
-                    "off" => KeyboardBacklightLevel::Off,
-                    "low" => KeyboardBacklightLevel::Low,
-                    "medium" => KeyboardBacklightLevel::Medium,
-                    "high" => KeyboardBacklightLevel::High,
-                    "custom" => {
-                        let val_str = args.get(1).ok_or_else(|| ParseError {
-                            message: t!("err_missing_args", args = "  [PWM_VAL]").into(),
-                            command: cmd_ctx.clone(),
-                        })?;
-                        let v: u8 = val_str.parse().map_err(|_| ParseError {
-                            message: t!("err_invalid_value", val = val_str, arg = "[PWM_VAL]").into(),
-                            command: cmd_ctx.clone(),
-                        })?;
-                        KeyboardBacklightLevel::Custom(v)
-                    }
-                    _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = mode_str, arg = "[MODE]")),
+                let level = if mode_str.eq_ignore_ascii_case("custom") {
+                    let pwm = parse_u8_arg(&args, 1, "[PWM_VAL]", &cmd_ctx)?;
+                    KeyboardBacklightLevel::Custom(pwm)
+                } else {
+                    parse_kbd_level(mode_str, "[MODE]", &cmd_ctx)?
                 };
                 Ok(CliCommand::Kbd { level: Some(level) })
             } else {
@@ -279,24 +232,12 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
         }
 
         "led" => {
-            let action_str = args.first().ok_or_else(|| ParseError {
-                message: t!("err_missing_args", args = "  <auto|custom>").into(),
-                command: cmd_ctx.clone(),
-            })?;
-            let mode = match action_str.to_lowercase().as_str() {
-                "auto" => PowerLedMode::Auto,
-                "custom" => {
-                    let val_str = args.get(1).ok_or_else(|| ParseError {
-                        message: t!("err_missing_args", args = "  [PWM_VAL]").into(),
-                        command: cmd_ctx.clone(),
-                    })?;
-                    let v: u8 = val_str.parse().map_err(|_| ParseError {
-                        message: t!("err_invalid_value", val = val_str, arg = "[PWM_VAL]").into(),
-                        command: cmd_ctx.clone(),
-                    })?;
-                    PowerLedMode::Custom(v)
-                }
-                _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = action_str, arg = "<auto|custom>")),
+            let action_str = require_arg(&args, 0, "<auto|custom>", &cmd_ctx)?;
+            let mode = if action_str.eq_ignore_ascii_case("custom") {
+                let pwm = parse_u8_arg(&args, 1, "[PWM_VAL]", &cmd_ctx)?;
+                PowerLedMode::Custom(pwm)
+            } else {
+                parse_led_mode(action_str, "<auto|custom>", &cmd_ctx)?
             };
             Ok(CliCommand::Led { mode })
         }
@@ -338,7 +279,7 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
         }
 
                 _ => {
-                    let known_commands = ["info", "temps", "fans", "monitoring", "fan", "charge", "power", "kbd", "led", "daemon", "help"];
+                    let known_commands = ["info", "temps", "fans", "monitoring", "fan", "charge", "power", "kbd", "led", "daemon", "hwtest", "help"];
                     let mut best_match = None;
                     let mut best_dist = usize::MAX;
                     for k in known_commands {
