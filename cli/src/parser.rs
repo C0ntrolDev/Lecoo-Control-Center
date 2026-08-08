@@ -278,23 +278,25 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
             Ok(CliCommand::Daemon(daemon_sub))
         }
 
-                _ => {
-                    let known_commands = ["info", "temps", "fans", "monitoring", "fan", "charge", "power", "kbd", "led", "daemon", "hwtest", "help"];
-                    let mut best_match = None;
-                    let mut best_dist = usize::MAX;
-                    for k in known_commands {
-                        let dist = strsim::levenshtein(&cmd, k);
-                        if dist < best_dist && dist <= 2 {
-                            best_dist = dist;
-                            best_match = Some(k);
-                        }
-                    }
+        "hwtest" => Ok(CliCommand::HwTest),
 
-                    if let Some(suggestion) = best_match {
-                        parse_bail!(None, "{}\n\n{}", t!("err_unrecognized_cmd", cmd = cmd), t!("err_did_you_mean", suggestion = suggestion));
-                    } else {
-                        parse_bail!(None, "{}", t!("err_unrecognized_cmd", cmd = cmd));
-                    }
+        _ => {
+            let known_commands = ["info", "temps", "fans", "monitoring", "fan", "charge", "power", "kbd", "led", "daemon", "hwtest", "help"];
+            let mut best_match = None;
+            let mut best_dist = usize::MAX;
+            for k in known_commands {
+                let dist = strsim::levenshtein(&cmd, k);
+                if dist < best_dist && dist <= 2 {
+                    best_dist = dist;
+                    best_match = Some(k);
                 }
+            }
+
+            if let Some(suggestion) = best_match {
+                parse_bail!(None, "{}\n\n{}", t!("err_unrecognized_cmd", cmd = cmd), t!("err_did_you_mean", suggestion = suggestion));
+            } else {
+                parse_bail!(None, "{}", t!("err_unrecognized_cmd", cmd = cmd));
+            }
+        }
     }
 }

@@ -8,6 +8,7 @@ use ipc::{
 
 mod defs;
 mod help;
+mod hwtest;
 mod parser;
 
 use defs::FanTarget;
@@ -58,6 +59,10 @@ fn main() -> Result<()> {
     }
 
     let mut client = client.ok_or_else(|| anyhow::anyhow!("{}", t!("err_daemon_connection")))?;
+
+    if matches!(command, CliCommand::HwTest) {
+        return hwtest::run(&mut client);
+    }
 
     let request = match command {
         CliCommand::Info => IpcRequest::GetSystemState,
@@ -120,7 +125,7 @@ fn main() -> Result<()> {
             DaemonSubcommand::Version => IpcRequest::GetSystemState,
         },
 
-        CliCommand::Help { .. } | CliCommand::Version => unreachable!(),
+        CliCommand::Help { .. } | CliCommand::Version | CliCommand::HwTest => unreachable!(),
     };
 
     let res: IpcResponse = client.request(&request)?;

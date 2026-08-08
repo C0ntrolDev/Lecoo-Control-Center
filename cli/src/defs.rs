@@ -7,7 +7,7 @@
 
 use rust_i18n::t;
 
-// ─── Shared types ──────────────────────────────────────────────────
+// --- Shared types ---
 
 /// CLI-only fan target (not in IPC - the daemon uses FanIndex)
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct ParseError {
     pub command: Option<String>,
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────
+// --- Helpers ---
 
 /// Extracts a required positional argument, or returns a localized error.
 pub fn require_arg<'a>(
@@ -46,7 +46,7 @@ pub fn parse_u8_arg(
     })
 }
 
-// ─── Macro ─────────────────────────────────────────────────────────
+// --- Macro ---
 
 /// Defines enum value mappings for both CLI parsing and help generation.
 ///
@@ -83,7 +83,7 @@ macro_rules! define_values {
     };
 }
 
-// ─── Value definitions ─────────────────────────────────────────────
+// --- Value definitions ---
 
 use ipc::{FanMode, KeyboardBacklightLevel, PowerLedMode, PowerProfile};
 

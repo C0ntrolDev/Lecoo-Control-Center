@@ -41,6 +41,7 @@ pub fn get_usage(target: Option<&str>, is_err: bool) -> String {
         Some("power") => format!("{usage_prefix}{bin} power [PROFILE]"),
         Some("kbd") => format!("{usage_prefix}{bin} kbd [MODE] [PWM_VAL]"),
         Some("led") => format!("{usage_prefix}{bin} led <auto|custom> [PWM_VAL]"),
+        Some("hwtest") => format!("{usage_prefix}{bin} hwtest"),
         Some("daemon") => format!("{usage_prefix}{bin} daemon <SUBCOMMAND>"),
         _ => format!("{usage_prefix}{bin} <COMMAND> [OPTIONS]"),
     }
@@ -208,6 +209,19 @@ pub fn print_help(target: Option<&str>, caps: Option<&Capabilities>) {
             println!();
             print_options();
         }
+        Some("hwtest") => {
+            println!("Interactive hardware feature tester");
+            println!();
+            print_usage(target);
+            println!();
+            println!("Walks through each supported feature (keyboard backlight, fans,");
+            println!("LED ring), demonstrates changes and asks whether they were observed.");
+            println!("Power profiles are verified automatically (set/readback).");
+            println!();
+            println!("Original settings are restored after the test (including on Ctrl+C).");
+            println!();
+            print_options();
+        }
         _ => print_global_help(caps),
     }
 }
@@ -233,6 +247,7 @@ fn print_global_help(caps: Option<&Capabilities>) {
     println!("  {}kbd{}           {}", bold(), reset(), t!("cmd_kbd_about"));
     println!("  {}led{}           {}", bold(), reset(), t!("cmd_led_about"));
     println!("  {}daemon{}        {}", bold(), reset(), t!("cmd_daemon_about"));
+    println!("  {}hwtest{}        Interactive hardware feature tester", bold(), reset());
     println!("  {}help{}          {}", bold(), reset(), t!("help_cmd_help_about"));
     println!();
     print_options();
