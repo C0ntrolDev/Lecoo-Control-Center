@@ -108,15 +108,15 @@ pub const N155C: BoardProfile = BoardProfile { id: "N155C", dmi: &["N155C"], ..N
 pub const N155D: BoardProfile = BoardProfile {
     id: "N155D",
     dmi: &["N155D"],
-    // TODO(verify): 0x4F is also fan.Cpu.policy on this board, so LED bypass and
-    // fan control write the same byte. Old candidates were 0x50 / 0x51 / 0x54.
-    // Listed in KNOWN_CONFLICTS until confirmed on hardware.
-    led: LedOps::PwmBreath {
-        pwm: PwmSpec { bypass: Addr::Ram(0x4F), ..N155A_PWM },
-        breath_en:    Addr::Reg(0x1850),
-        breath_step:  Addr::Reg(0x1851),
-        breath_delay: Addr::Reg(0x1852),
-    },
+    // TODO: https://4pda.to/forum/index.php?showtopic=1108499&view=findpost&p=144510075
+    // for 155D for now Idk the correct breath_en registry!! So for now led not working :<
+    led: LedOps::None,
+    // led: LedOps::PwmBreath {
+    //     pwm: PwmSpec { bypass: Addr::Ram(0x4F), ..N155A_PWM },
+    //     breath_en:    Addr::Reg(0x1850),
+    //     breath_step:  Addr::Reg(0x1851),
+    //     breath_delay: Addr::Reg(0x1852),
+    // },
     ..N155A
 };
 
