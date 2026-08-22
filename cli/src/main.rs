@@ -1,10 +1,9 @@
 use std::io::{self, Write};
 
 use anyhow::Result;
-use ipc::{
-    Capabilities, DaemonCommand, DaemonResponse, FanIndex, IpcClient, IpcRequest,
-    IpcResponse, ChargeIntent, FanMode
-};
+use ipc::{DaemonCommand, IpcClient, IpcRequest, IpcResponse};
+use lecoo_types::caps::Capabilities;
+use lecoo_types::ec_types::{ChargeIntent, FanIndex, FanMode};
 
 mod defs;
 mod help;
@@ -19,7 +18,7 @@ use rust_i18n::t;
 
 
 fn fetch_capabilities(client: &mut IpcClient) -> Option<Capabilities> {
-    match client.request::<IpcRequest, IpcResponse>(&IpcRequest::GetCapabilities) {
+    match client.request(&IpcRequest::DaemonCommand(DaemonCommand::GetCapabilities)) {
         Ok(IpcResponse::Capabilities(caps)) => Some(*caps),
         _ => None,
     }
@@ -30,8 +29,8 @@ fn main() -> Result<()> {
         rust_i18n::set_locale(&sys_locale);
     }
 
-    let mut client = IpcClient::connect().ok();
-    let caps = client.as_mut().and_then(fetch_capabilities);
+    let mut client_res = IpcClient::connect();
+    let caps = client_res.as_mut().ok().and_then(fetch_capabilities);
 
     let command = match parser::parse_args(caps.as_ref()) {
         Ok(cmd) => cmd,
@@ -58,7 +57,10 @@ fn main() -> Result<()> {
         _ => {}
     }
 
-    let mut client = client.ok_or_else(|| anyhow::anyhow!("{}", t!("err_daemon_connection")))?;
+    let mut client = match client_res {
+        Ok(c) => c,
+        Err(e) => anyhow::bail!("{} ({})", t!("err_daemon_connection"), e),
+    };
 
     if matches!(command, CliCommand::HwTest) {
         return hwtest::run(&mut client);
@@ -73,8 +75,8 @@ fn main() -> Result<()> {
             let update_rate = (rate.unwrap_or(1.0) * 1000.0) as u64;
             println!("{}", t!("msg_monitoring_start", rate = update_rate));
             loop {
-                let IpcResponse::Temp(cpu, system) = client.request(&IpcRequest::GetTemperatures)? else { unreachable!() };
-                let IpcResponse::FanRPM(cpu_fan, gpu_fan) = client.request(&IpcRequest::GetFansRPM)? else { unreachable!() };
+                let IpcResponse::Temps { cpu_c: cpu, sys_c: system } = client.request(&IpcRequest::GetTemperatures)? else { unreachable!() };
+                let IpcResponse::FanRpm { cpu: cpu_fan, gpu: gpu_fan } = client.request(&IpcRequest::GetFansRPM)? else { unreachable!() };
 
                 print!("\r{}      ", t!("msg_monitoring_loop",
                     cpu = cpu, sys = system, cpu_f = cpu_fan, gpu_f = gpu_fan
@@ -133,15 +135,15 @@ fn main() -> Result<()> {
     match res {
         IpcResponse::Success => println!("{}", t!("msg_success")),
 
-        IpcResponse::SystemInfo(chip, rev, offset, ver) => {
-            println!("{}", t!("resp_sys_info", chip = chip, rev = rev, offset = offset : {:04X}, ver = ver));
+        IpcResponse::SystemInfo(info) => {
+            println!("{}", t!("resp_sys_info", chip = info.chip, rev = info.revision, offset = info.hram_offset : {:04X}, ver = info.daemon_version));
         }
 
-        IpcResponse::FanRPM(cpu, gpu) => {
+        IpcResponse::FanRpm { cpu, gpu } => {
             println!("{}", t!("resp_fans_rpm", cpu = cpu, gpu = gpu));
         }
 
-        IpcResponse::Temp(cpu, sys) => {
+        IpcResponse::Temps { cpu_c: cpu, sys_c: sys } => {
             println!("{}", t!("resp_temps", cpu = cpu, sys = sys));
         }
 
@@ -149,7 +151,7 @@ fn main() -> Result<()> {
             println!("{}", t!("resp_kbd_backlight", lvl = lvl));
         }
 
-        IpcResponse::ChargeLimit(min, max, cur) => {
+        IpcResponse::ChargeLimit { min, max, current: cur } => {
             println!("{}", t!("resp_charge_title"));
             if min == 0 && max == 0 {
                 println!("{}", t!("resp_charge_full"));
@@ -189,26 +191,23 @@ fn main() -> Result<()> {
             println!("{}", t!("resp_telemetry_disabled"));
         }
 
-        IpcResponse::Error(msg) => {
-            eprintln!("{}{}{}", help::err_red(), t!("msg_error", msg = msg), help::err_reset());
+        IpcResponse::Error(err) => {
+            if let Some(info) = err.unsupported {
+                println!("{}", t!("msg_unsupported_title", board = info.board));
+                println!("{}", t!("msg_unsupported_hint"));
+            } else if err.code == ipc::ErrorCode::Precondition {
+                println!("{}", t!("msg_precondition", reason = err.message));
+            } else {
+                eprintln!("{}{}{}", help::err_red(), t!("msg_error", msg = err.message), help::err_reset());
+            }
             std::process::exit(1);
         }
 
-        IpcResponse::Precondition(reason) => {
-            println!("{}", t!("msg_precondition", reason = reason));
-        }
+        IpcResponse::Settings(s) => println!("{:#?}", s),
 
-        IpcResponse::Unsupported(info) => {
-            println!("{}", t!("msg_unsupported_title", board = info.board));
-            println!("{}", t!("msg_unsupported_hint"));
+        IpcResponse::TelemetryId(id) => {
+            println!("{}", t!("resp_telemetry_id", id = id : {:016X}));
         }
-
-        IpcResponse::DaemonResponse(dr) => match dr {
-            DaemonResponse::Settings(s) => println!("{:#?}", s),
-            DaemonResponse::TelemetryId(id) => {
-                println!("{}", t!("resp_telemetry_id", id = id : {:016X}));
-            }
-        },
     }
 
     Ok(())

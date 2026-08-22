@@ -1,21 +1,19 @@
 //! Custom CLI Parser using `lexopt`.
-//! 
+//!
 //! Why aren't we using `clap`?
 //! `clap` requires the entire CLI structure (commands, arguments, possible values)
-//! to be statically defined at compile time. However, this application heavily relies 
-//! on dynamic hardware capabilities retrieved via IPC (e.g., supported charge presets, 
-//! power profiles). Injecting dynamic states into `clap`'s static tree requires 
+//! to be statically defined at compile time. However, this application heavily relies
+//! on dynamic hardware capabilities retrieved via IPC (e.g., supported charge presets,
+//! power profiles). Injecting dynamic states into `clap`'s static tree requires
 //! extensive hacks and defeats the purpose of the library.
-//! 
-//! By using `lexopt`, we maintain a lightweight, stream-based parsing approach. 
+//!
+//! By using `lexopt`, we maintain a lightweight, stream-based parsing approach.
 //! It allows us to manually parse arguments based on the daemon's runtime `Capabilities`
-//! while keeping the binary size incredibly lean, compile times fast, and providing 
+//! while keeping the binary size incredibly lean, compile times fast, and providing
 //! a completely dynamic `--help` output that actually matches the user's hardware.
 
-use ipc::{
-    Capabilities, ChargeIntent, ChargeRange, FanMode, KeyboardBacklightLevel,
-    PowerLedMode, PowerProfile,
-};
+use lecoo_types::caps::Capabilities;
+use lecoo_types::ec_types::{ChargeIntent, ChargeRange, FanMode, KeyboardBacklightLevel, PowerLedMode, PowerProfile};
 use lexopt::prelude::*;
 use rust_i18n::t;
 

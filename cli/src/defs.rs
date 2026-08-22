@@ -85,7 +85,7 @@ macro_rules! define_values {
 
 // --- Value definitions ---
 
-use ipc::{FanMode, KeyboardBacklightLevel, PowerLedMode, PowerProfile};
+use lecoo_types::ec_types::{FanMode, KeyboardBacklightLevel, PowerLedMode, PowerProfile};
 
 define_values! {
     parse_fan_target / help_fan_target, pad: 6, FanTarget {

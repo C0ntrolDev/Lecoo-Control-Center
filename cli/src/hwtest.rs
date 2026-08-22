@@ -7,11 +7,10 @@ use std::time::Duration;
 use std::thread;
 
 use anyhow::Result;
-use ipc::{
-    CurrentSettings, DaemonCommand, DaemonResponse, FanCaps, FanIndex,
-    FanMode, IpcClient, IpcRequest, IpcResponse, KeyboardBacklightLevel,
-    PowerLedMode, PowerProfile,
-};
+use ipc::{DaemonCommand, IpcClient, IpcRequest, IpcResponse};
+use lecoo_types::settings::CurrentSettings;
+use lecoo_types::caps::FanCaps;
+use lecoo_types::ec_types::{FanIndex, FanMode, KeyboardBacklightLevel, PowerLedMode, PowerProfile};
 
 use crate::help;
 
@@ -69,15 +68,15 @@ struct CategoryResult {
 // --- Entry point ---
 
 pub fn run(client: &mut IpcClient) -> Result<()> {
-    let caps = match client.request::<IpcRequest, IpcResponse>(&IpcRequest::GetCapabilities)? {
+    let caps = match client.request(&IpcRequest::DaemonCommand(DaemonCommand::GetCapabilities))? {
         IpcResponse::Capabilities(c) => *c,
         other => anyhow::bail!("unexpected GetCapabilities response: {other:?}"),
     };
 
-    let saved = match client.request::<IpcRequest, IpcResponse>(
+    let saved = match client.request(
         &IpcRequest::DaemonCommand(DaemonCommand::GetSettings),
     )? {
-        IpcResponse::DaemonResponse(DaemonResponse::Settings(s)) => s,
+        IpcResponse::Settings(s) => s,
         _ => anyhow::bail!("failed to read current daemon settings"),
     };
 
@@ -89,6 +88,7 @@ pub fn run(client: &mut IpcClient) -> Result<()> {
         help::bold(), caps.board, help::reset()
     );
     println!("Each feature will be demonstrated — watch/listen for changes.");
+    #[rustfmt::skip]
     println!(
         "Answer: {}y{}es / {}n{}o / {}?{} unsure / {}q{}uit or Ctrl+C",
         help::bold(), help::reset(),
@@ -153,6 +153,7 @@ pub fn run(client: &mut IpcClient) -> Result<()> {
 // --- Category tests ---
 
 fn test_kbd(client: &mut IpcClient) -> Result<Option<CategoryResult>> {
+    #[rustfmt::skip]
     let levels = [
         (KeyboardBacklightLevel::Off,    "off"),
         (KeyboardBacklightLevel::Low,    "low"),
@@ -278,7 +279,7 @@ fn test_power(
         interruptible_sleep(Duration::from_millis(200));
 
         let ok = matches!(
-            client.request::<IpcRequest, IpcResponse>(&IpcRequest::GetPowerProfile),
+            client.request(&IpcRequest::GetPowerProfile),
             Ok(IpcResponse::PowerLimit(got)) if got == p
         );
 
@@ -299,7 +300,7 @@ fn test_power(
 // --- Helpers ---
 
 fn set_quiet(client: &mut IpcClient, req: &IpcRequest) {
-    let _ = client.request::<IpcRequest, IpcResponse>(req);
+    let _ = client.request(req);
 }
 
 fn spin_down(client: &mut IpcClient, fans: &[FanCaps]) {
@@ -338,19 +339,19 @@ fn ask_verdict(prompt: &str) -> Result<Option<Verdict>> {
 }
 
 fn restore_settings(client: &mut IpcClient, s: &CurrentSettings) {
-    let _ = client.request::<IpcRequest, IpcResponse>(
+    let _ = client.request(
         &IpcRequest::SetKeyboardBacklight(s.keyboard_backlight),
     );
-    let _ = client.request::<IpcRequest, IpcResponse>(
+    let _ = client.request(
         &IpcRequest::SetFanMode { fan: FanIndex::Cpu, mode: s.fan_mode_cpu },
     );
-    let _ = client.request::<IpcRequest, IpcResponse>(
+    let _ = client.request(
         &IpcRequest::SetFanMode { fan: FanIndex::Gpu, mode: s.fan_mode_gpu },
     );
-    let _ = client.request::<IpcRequest, IpcResponse>(
+    let _ = client.request(
         &IpcRequest::SetPowerProfile(s.power_profile),
     );
-    let _ = client.request::<IpcRequest, IpcResponse>(
+    let _ = client.request(
         &IpcRequest::SetLedMode(s.led_mode),
     );
     println!();

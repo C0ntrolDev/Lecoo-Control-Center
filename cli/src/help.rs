@@ -1,4 +1,4 @@
-use ipc::Capabilities;
+use lecoo_types::caps::Capabilities;
 use rust_i18n::t;
 
 use std::io::IsTerminal;
@@ -51,6 +51,9 @@ pub fn print_usage(target: Option<&str>) {
     println!("{}", get_usage(target, false));
 }
 
+/// Every arm here is a hand-aligned console table: the padding lives inside the
+/// format strings, so line breaks chosen by width would shred the output layout.
+#[rustfmt::skip]
 pub fn print_help(target: Option<&str>, caps: Option<&Capabilities>) {
     match target.map(|s| s.to_lowercase()).as_deref() {
         Some("info") => {
