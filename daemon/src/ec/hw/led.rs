@@ -28,8 +28,8 @@ pub fn apply_led_mode(ec: &EcDevice, mode: &PowerLedMode) -> Result<()> {
                 ec.with_batch(|b| {
                     b.write(pwm.prescaler, 0x00)?;
                     b.write(pwm.cycle, 0xFF)?;
-                    b.write(breath_step, config.breath_step_register())?;
-                    b.write(breath_delay, config.breath_delay_register())?;
+                    b.write(breath_step, breath_step_register(&config))?;
+                    b.write(breath_delay, breath_delay_register(&config))?;
                     b.write(breath_en, 0x01)
                 })
             }
@@ -51,6 +51,21 @@ pub fn apply_battery_leds(ec: &EcDevice, orange_on: bool, white_on: bool) -> Res
 }
 
 // ------ helpers ------
+
+/// Creates the value for the breath_step register (LCR1)
+#[inline]
+pub fn breath_step_register(c: &BreathConfig) -> u8 {
+    ((c.max_brightness as u8) << 4)
+        | ((c.step_down as u8) << 2)
+        | (c.step_up as u8)
+}
+
+/// Creates the value for the breath_delay register (LCR2)
+#[inline]
+pub fn breath_delay_register(c: &BreathConfig) -> u8 {
+    ((c.delay_at_max as u8) << 4) | (c.delay_at_min as u8)
+}
+
 
 #[inline]
 fn enter_custom(ec: &EcDevice, pwm: PwmSpec) -> Result<()> {

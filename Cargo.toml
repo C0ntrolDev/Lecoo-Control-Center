@@ -4,13 +4,19 @@ members = [
     "daemon",
     "cli",
     "gui",
-    "telemetry_server"
+    "telemetry_server",
+    "types",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.5.1-beta"
+version = "0.5.2-beta"
 authors = ["LaVashikk <contact@lavashik.dev>"]
 description = "A cross-platform Rust daemon and CLI/GUI for controlling fans, TDP, battery limits, and LED on Lecoo/Emdoor laptops (IT5570/IT5571 EC)."
 repository = "https://github.com/LaVashikk/Lecoo-Control-Center"
 license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+lecoo-types = { path = "types" }

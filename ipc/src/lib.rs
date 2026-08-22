@@ -1,41 +1,53 @@
-use bincode::{Decode, Encode, config};
 use interprocess::local_socket::{GenericNamespaced, Stream, ToNsName};
+use lecoo_types::{caps::*, ec_types::*, settings::CurrentSettings};
+use serde::{Deserialize, Serialize};
 use std::io::{Read, self, Write};
 
 mod client;
 mod server;
-mod structs;
 
 pub use client::IpcClient;
 pub use server::IpcServer;
-pub use structs::*;
 
-pub const IPC_PROTOCOL_VERSION: [u8; 3] = [
-    parse_u8(env!("CARGO_PKG_VERSION_MAJOR")),
-    parse_u8(env!("CARGO_PKG_VERSION_MINOR")),
-    parse_u8(env!("CARGO_PKG_VERSION_PATCH")),
-];
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DaemonCommand {
+    GetCapabilities,
+    RestoreDefaults,
+    GetSettings,
+    ApplySettings,
+    GetTelemetryId,
+    ActivateTelemetry(bool),
 
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    ActivateProcessSuspend(bool),
+
+    RunPrepareShutdown, // todo: is this actually used?
+    RunPrepareSuspend,
+    RunPrepareResume,
+
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "t", content = "c")]
+pub enum DaemonResponse {
+    Settings(Box<CurrentSettings>),
+    TelemetryId(u64),
+    Capabilities(Box<Capabilities>),
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "t", content = "c")]
 pub enum IpcRequest {
     /// Request the current telemetry and configuration state
     GetSystemState,
-
-    /// Get fans RPM
     GetFansRPM,
-
-    /// Get system temperatures
     GetTemperatures,
-
-    /// Get the current battery charge limit
     GetChargeStatus,
     /// TODO: LEGACY api for reading charge limit
     GetChargeLimit,
-
-    /// Get the current power profile
     GetPowerProfile,
-
-    /// Get the current keyboard backlight brightness
     GetKeyboardBacklight,
 
     /// Apply a new power profile (Silent/Default/Performance)
@@ -61,53 +73,80 @@ pub enum IpcRequest {
     /// Send a command to the daemon
     DaemonCommand(DaemonCommand),
 
-    GetCapabilities,
+    #[serde(other)]
+    Unknown,
 }
 
 
 /// Responses sent FROM the Daemon TO the Client.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "t", content = "c")]
 pub enum IpcResponse {
-    /// Acknowledgment of a successful command execution
-    Success,
+    Ok,
+    Error(IpcError),
 
     /// Information about the embedded controller
-    SystemInfo(String, String, u16, String),
+    SystemInfo(SystemInfo),
 
     /// RPM readings for both fans
-    FanRPM(u16, u16),
+    FanRpm { cpu: u16, gpu: u16 },
 
     /// Temperature readings for CPU and System
-    Temp(u8, u8),
+    Temps { cpu_c: u8, sys_c: u8 },
 
-    /// Current battery charge limit (min/max percentages)
-    ChargeLimit(u8, u8, u8),
+    /// Current battery charge limit (TODO: LEGACY)
+    ChargeLimit { min: u8, max: u8, current: u8 },
+
+    /// Current battery charge status
+    ChargeStatus(ChargeStatus),
 
     /// Current keyboard backlight brightness
     KeyboardBacklight(KeyboardBacklightLevel),
 
     /// Current power profile
     PowerLimit(PowerProfile),
-    /// TODO:
-    ChargeStatus(ChargeStatus),
 
     /// Response from the daemon
     DaemonResponse(DaemonResponse),
 
     /// Information about telemetry being disabled
     TelemetryDisabledInfo,
-
-    /// Error message if something went wrong
-    Error(String),
-
-    /// Message about regarding the lack of hardware support
-    Unsupported(UnsupportedInfo),
-
-    ///
-    Capabilities(Box<Capabilities>),
-    /// Feature exists but preconditions are unmet. Text goes into a GUI tooltip.
-    Precondition(String),
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ErrorCode {
+    Internal,
+    /// Daemon does not support this request or the client is too new.
+    UnsupportedRequest,
+    /// Daemon does not support the hardware the client is using.
+    UnsupportedHardware,
+    /// Feature exists but preconditions are unmet. Text goes into a GUI tooltip.
+    Precondition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemInfo {
+    pub chip: String,
+    pub revision: String,
+    pub hram_offset: u16,
+    pub daemon_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IpcError {
+    pub code: ErrorCode,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported: Option<UnsupportedInfo>,
+}
+
+impl IpcError {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self { code, message: message.into(), unsupported: None }
+    }
+}
+
+// ---------
 
 pub struct IpcConnection {
     stream: Stream,

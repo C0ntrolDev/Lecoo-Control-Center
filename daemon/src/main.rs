@@ -158,6 +158,9 @@ fn main() -> Result<()> {
     #[cfg(not(windows))]
     let _service_worker = services::start(tx_to_core);
 
+    let daemon_state = CurrentSettings::load_or_default();
+    telemetry::init(daemon_state.telemetry_enabled, daemon_state.telemetry_client_id);
+
     let server = IpcServer::bind();
 
     let insecure_mode = args.iter().any(|arg| arg == "--insecure");
@@ -183,8 +186,14 @@ fn main() -> Result<()> {
 
         let _ = UNSUPPORTED.set(ipc::UnsupportedInfo {
             board: board.clone(),
+            chip: chip.clone(),
+        });
+
+        telemetry::send(ipc::TelemetryData::Unsupported {
+            motherboard: board.clone(),
             chip,
         });
+
         log::error!("Unsupported motherboard: {board}. Serving Unsupported over IPC.");
         serve_forever(server.context("Failed to bind IPC server")?);
     };
@@ -194,12 +203,9 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let daemon_state = CurrentSettings::load_or_default();
     if let Err(e) = daemon_state.restore_state(&ec) {
         log::error!("Failed to restore EC state: {}", e);
     }
-
-    telemetry::init(daemon_state.telemetry_enabled, daemon_state.telemetry_client_id);
 
     if daemon_state.telemetry_enabled {
         let (cpu_name, os_name, motherboard) = services::get_system_info();
