@@ -1,12 +1,11 @@
 use std::fs::create_dir_all;
-use std::panic;
 use std::path::Path;
 use std::sync::{OnceLock, mpsc::Sender};
 use std::time::Duration;
 use file_rotate::compression::Compression;
 use file_rotate::suffix::AppendCount;
 use file_rotate::{ContentLimit, FileRotate};
-use ipc::TelemetryData;
+use lecoo_types::telemetry::HostInfo;
 use winreg::enums::*;
 use winreg::RegKey;
 use log::{LevelFilter, info};
@@ -30,23 +29,33 @@ pub fn run_as_service(tx: Sender<InternalEvent>) -> Result<(), windows_service::
     service_dispatcher::start(SERVICE_NAME, ffi_service_main)
 }
 
-pub fn get_board_name() -> String {
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    hklm.open_subkey("HARDWARE\\DESCRIPTION\\System\\BIOS")
-        .and_then(|key| key.get_value::<String, _>("BaseBoardProduct"))
-        .unwrap_or_else(|_| "Unknown Motherboard".to_string())
+/// The SMBIOS mirror the firmware publishes at boot. Same source the DMI files
+/// expose on Linux, so both platforms report comparable strings.
+const BIOS_KEY: &str = "HARDWARE\\DESCRIPTION\\System\\BIOS";
+
+/// Empty values are treated as absent, same as on Linux.
+fn bios_value(name: &str) -> Option<String> {
+    RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey(BIOS_KEY)
+        .and_then(|key| key.get_value::<String, _>(name))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
-pub fn get_system_info() -> (String, String, String) {
+pub fn get_board_name() -> String {
+    bios_value("BaseBoardProduct").unwrap_or_else(|| "Unknown Motherboard".to_string())
+}
+
+pub fn get_host_info() -> HostInfo {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
-    let cpu_name = hklm.open_subkey("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0")
+    let cpu = hklm.open_subkey("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0")
         .and_then(|key| key.get_value::<String, _>("ProcessorNameString"))
+        .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "Unknown CPU".to_string());
 
-    let motherboard = get_board_name();
-
-    let (mut os_name, os_version) = hklm.open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion")
+    let (mut os_name, os_build) = hklm.open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion")
         .map(|key| {
             let name = key.get_value::<String, _>("ProductName").unwrap_or_else(|_| "Windows".to_string());
             let build = key.get_value::<String, _>("CurrentBuild").unwrap_or_else(|_| "0".to_string());
@@ -54,14 +63,25 @@ pub fn get_system_info() -> (String, String, String) {
         })
         .unwrap_or_else(|_| ("Windows".to_string(), "0".to_string()));
 
-    let build_number = os_version.parse().unwrap_or(0);
-
-    // restore the real windows version
-    if os_name.contains("Windows 10") && build_number >= 22000 {
+    // ProductName was frozen at "Windows 10" for 11 as well; the build tells the truth.
+    if os_name.contains("Windows 10") && os_build.parse::<u32>().unwrap_or(0) >= 22000 {
         os_name = os_name.replace("Windows 10", "Windows 11");
     }
 
-    (cpu_name, format!("{} (Build {})", os_name, os_version), motherboard)
+    let bios = match (bios_value("BIOSVersion"), bios_value("BIOSReleaseDate")) {
+        (Some(version), Some(date)) => Some(format!("{version} ({date})")),
+        (version, _) => version,
+    };
+
+    HostInfo {
+        vendor: bios_value("SystemManufacturer").unwrap_or_default(),
+        product: bios_value("SystemProductName").unwrap_or_default(),
+        motherboard: get_board_name(),
+        bios,
+        cpu,
+        os: format!("{os_name} (Build {os_build})"),
+        arch: std::env::consts::ARCH.to_string(),
+    }
 }
 
 fn my_service_main(_arguments: Vec<std::ffi::OsString>) {
@@ -179,34 +199,9 @@ pub fn init_logger() {
         None
     );
 
-    WriteLogger::init(
-        LevelFilter::Info,
-        Config::default(),
-        writer
-    ).unwrap_or_else(|err| log::error!("Something try init logger again. {:?}", err));
+    // Built rather than installed: telemetry wraps it to forward error records.
+    let inner = WriteLogger::new(LevelFilter::Info, Config::default(), writer);
 
-    panic::set_hook(Box::new(|panic_info| {
-        let location = panic_info.location().unwrap();
-
-        let msg = match panic_info.payload().downcast_ref::<&'static str>() {
-            Some(s) => *s,
-            None => match panic_info.payload().downcast_ref::<String>() {
-                Some(s) => &s[..],
-                None => "Unknown panic message",
-            },
-        };
-
-        let error = format!(
-            "CRITICAL PANIC in file '{}' at line {}: {}",
-            location.file(),
-            location.line(),
-            msg
-        );
-
-        log::error!("{}", error);
-        log::logger().flush();
-        crate::telemetry::send(
-            TelemetryData::Panic { error }
-        );
-    }));
+    crate::telemetry::install_logger(inner, LevelFilter::Info);
+    crate::telemetry::install_panic_hook();
 }

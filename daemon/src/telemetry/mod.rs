@@ -1,13 +1,26 @@
-use std::{sync::{OnceLock, atomic::{AtomicBool, AtomicU64, Ordering}, mpsc::{Receiver, RecvTimeoutError, Sender}}, time::Duration};
+use std::{
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::Sender,
+    },
+    time::Instant,
+};
 
 use lecoo_types::telemetry::{TelemetryData, TelemetryPayload};
 
-use crate::ec;
+mod errors;
+mod panic;
+mod worker;
 
-static TELEMETRY_INTERVAL: Duration = Duration::from_secs(300);
+pub use errors::install as install_logger;
+pub use panic::install as install_panic_hook;
+
 static TELEMETRY_ENABLED: AtomicBool = AtomicBool::new(true);
 static TELEMETRY_TX: OnceLock<Sender<TelemetryData>> = OnceLock::new();
 static TELEMETRY_ID: AtomicU64 = AtomicU64::new(0);
+static SESSION_ID: OnceLock<u64> = OnceLock::new();
+static STARTED_AT: OnceLock<Instant> = OnceLock::new();
 
 pub fn init(start_enabled: bool, client_id: u64) {
     let (tx, rx) = std::sync::mpsc::channel();
@@ -15,18 +28,19 @@ pub fn init(start_enabled: bool, client_id: u64) {
     TELEMETRY_ENABLED.store(start_enabled, Ordering::Relaxed);
     TELEMETRY_TX.set(tx).expect("Telemetry already initialized");
     TELEMETRY_ID.store(client_id, Ordering::Relaxed);
+    let _ = STARTED_AT.set(Instant::now());
 
     std::thread::Builder::new()
         .name("telemetry-worker".into())
-        .spawn(|| worker_loop(rx))
+        .spawn(|| worker::run(rx))
         .expect("Failed to spawn telemetry worker");
 }
 
+/// Queues an event. Dropped silently when telemetry is off or before `init`,
+/// which is why callers never have to check either.
 pub fn send(data: TelemetryData) {
-    if is_enabled() {
-        if let Some(tx) = TELEMETRY_TX.get() {
-            let _ = tx.send(data);
-        }
+    if is_enabled() && let Some(tx) = TELEMETRY_TX.get() {
+        let _ = tx.send(data);
     }
 }
 
@@ -44,59 +58,24 @@ pub fn is_enabled() -> bool {
     TELEMETRY_ENABLED.load(Ordering::Relaxed)
 }
 
-fn worker_loop(rx: Receiver<TelemetryData>) {
-    loop {
-        match rx.recv_timeout(TELEMETRY_INTERVAL) {
-            Ok(message) => {
-                if is_enabled() {
-                    send_to_server(message);
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                if is_enabled() {
-                    if let Some(ec) = crate::EC.get() {
-                        if let Ok(profile) = ec::read_power_profile(ec) {
-                            if let Ok((cpu_temp, sys_temp)) = ec::read_temperatures(ec) {
-                                if let Ok((cpu_rpm, gpu_rpm)) = ec::read_fans_rpm(ec) {
-                                    let status = TelemetryData::Status {
-                                        profile,
-                                        cpu_temp_c: cpu_temp as u32,
-                                        sys_temp_c: sys_temp as u32,
-                                        cpu_fan_rpm: cpu_rpm as u32,
-                                        gpu_fan_rpm: gpu_rpm as u32,
-                                    };
-                                    send_to_server(status);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                log::warn!("Telemetry channel disconnected, exiting worker.");
-                break;
-            }
-        }
-    }
+/// Identifies one daemon process
+fn session_id() -> u64 {
+    *SESSION_ID.get_or_init(|| {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        std::time::SystemTime::now().hash(&mut hasher);
+        hasher.finish()
+    })
 }
 
-fn send_to_server(data: TelemetryData) {
-    let payload = TelemetryPayload {
+fn uptime_s() -> u64 {
+    STARTED_AT.get().map(|t| t.elapsed().as_secs()).unwrap_or(0)
+}
+
+fn wrap(data: TelemetryData) -> TelemetryPayload {
+    TelemetryPayload {
         id: TELEMETRY_ID.load(Ordering::Relaxed),
+        session: session_id(),
         data,
-    };
-
-    let body = match serde_json::to_vec(&payload) {
-        Ok(b) => b,
-        Err(e) => { log::error!("Failed to encode telemetry: {e}"); return; }
-    };
-
-    match ureq::post("https://lab.lavashik.dev/telemetry/v2")
-        .header("X-Daemon-Version", crate::VERSION)
-        .header("Content-Type", "application/json")
-        .send(&body)
-    {
-        Ok(_) => {}
-        Err(e) => log::warn!("Failed to send telemetry: {e}"),
     }
 }

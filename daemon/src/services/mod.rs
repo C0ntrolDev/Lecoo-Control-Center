@@ -7,9 +7,9 @@ pub mod win_service;
 pub mod systemd_service;
 
 #[cfg(target_os = "windows")]
-pub use win_service::{init_logger, get_system_info, get_board_name};
+pub use win_service::{init_logger, get_host_info, get_board_name};
 #[cfg(target_os = "linux")]
-pub use systemd_service::{init_logger, get_system_info, get_board_name};
+pub use systemd_service::{init_logger, get_host_info, get_board_name};
 
 #[derive(Debug, Clone, Copy)]
 pub enum InternalEvent {

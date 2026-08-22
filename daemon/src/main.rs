@@ -18,11 +18,12 @@ pub static UNSUPPORTED: OnceLock<caps::UnsupportedInfo> = OnceLock::new();
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn resolve_profile(args: &[String], board: &str) -> Option<&'static ec::BoardProfile> {
+/// Returns the (profile, forced)
+fn resolve_profile(args: &[String], board: &str) -> Option<(&'static ec::BoardProfile, bool)> {
     if let Some(i) = args.iter().position(|a| a == "--profile") {
         let id = args.get(i + 1)?;
         return match ec::by_id(id) {
-            Some(p) => { log::warn!("Forced board profile: {}", p.id); Some(p) }
+            Some(p) => { log::warn!("Forced board profile: {}", p.id); Some((p, true)) }
             None => {
                 log::error!("Unknown profile id: {id}. Known: {}",
                     ec::PROFILES.iter().map(|p| p.id).collect::<Vec<_>>().join(", "));
@@ -30,7 +31,7 @@ fn resolve_profile(args: &[String], board: &str) -> Option<&'static ec::BoardPro
             }
         };
     }
-    ec::detect(board)
+    ec::detect(board).map(|p| (p, false))
 }
 
 fn process_ipc_connection(mut conn: DaemonWorker) {
@@ -167,9 +168,9 @@ fn main() -> Result<()> {
     let board = services::get_board_name();
 
     let device = match resolve_profile(&args, &board) {
-        Some(profile) => {
+        Some((profile, forced)) => {
             log::info!("Detected motherboard {}.", profile.id);
-            Some(ec::EcDevice::new_with_profile(profile, insecure_mode)?)
+            Some((ec::EcDevice::new_with_profile(profile, insecure_mode)?, forced))
         }
         None => {
             if insecure_mode {
@@ -180,7 +181,7 @@ fn main() -> Result<()> {
         }
     };
 
-    let Some(ec) = device else {
+    let Some((ec, forced_profile)) = device else {
         let chip = ec::probe_chip_only()
             .map(|(id1, id2, ver)| format!("IT{:02X}{:02X}-{:02X}", id1, id2, ver));
 
@@ -190,7 +191,7 @@ fn main() -> Result<()> {
         });
 
         telemetry::send(TelemetryData::Unsupported {
-            motherboard: board.clone(),
+            host: services::get_host_info(),
             chip,
         });
 
@@ -203,21 +204,22 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if let Err(e) = daemon_state.restore_state(&ec) {
+    let restore_error = daemon_state.restore_state(&ec).err().map(|e| {
         log::error!("Failed to restore EC state: {}", e);
-    }
+        e.to_string()
+    });
 
     if daemon_state.telemetry_enabled {
-        let (cpu_name, os_name, motherboard) = services::get_system_info();
-
         let (chip_id1, chip_id2, chip_ver) = ec::read_system_info(&ec)?;
 
         telemetry::send(TelemetryData::Startup {
+            host: services::get_host_info(),
+            profile: ec.profile.id.to_string(),
+            forced_profile,
             firmware: format!("IT{:02X}{:02X}-{:02X}", chip_id1, chip_id2, chip_ver),
-            offset: ec.hram_offset(),
-            cpu: cpu_name,
-            os: os_name,
-            motherboard,
+            hram_offset: ec.hram_offset(),
+            caps: Box::new(ec.profile.caps(VERSION)),
+            restore_error,
         });
     }
 

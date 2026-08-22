@@ -1,57 +1,31 @@
 use std::fs;
 use std::sync::mpsc::Sender;
-use std::{panic, thread};
-use lecoo_types::telemetry::TelemetryData;
+use std::thread;
+use lecoo_types::telemetry::HostInfo;
 use zbus::blocking::Connection;
 use super::InternalEvent;
 
 pub fn init_logger() {
+    use log::LevelFilter;
+    let level = LevelFilter::Info;
+
     let is_systemd = std::env::var("JOURNAL_STREAM").is_ok() || std::env::var("INVOCATION_ID").is_ok();
 
-    if is_systemd {
-        systemd_journal_logger::JournalLog::new()
-            .unwrap()
-            .with_extra_fields(vec![("VERSION", crate::VERSION)])
-            .with_syslog_identifier("lecoo-daemon".to_string())
-            .install().unwrap();
-        log::set_max_level(log::LevelFilter::Info);
+    // Built rather than installed: telemetry wraps it to forward error records.
+    let inner: Box<dyn log::Log> = if is_systemd {
+        Box::new(
+            systemd_journal_logger::JournalLog::new()
+                .unwrap()
+                .with_extra_fields(vec![("VERSION", crate::VERSION)])
+                .with_syslog_identifier("lecoo-daemon".to_string()),
+        )
     } else {
-        use simplelog::{Config, LevelFilter, TermLogger, TerminalMode, ColorChoice};
-        TermLogger::init(
-            LevelFilter::Info,
-            Config::default(),
-            TerminalMode::Mixed,
-            ColorChoice::Auto,
-        ).unwrap_or_else(|_| {
-            // fallback
-            simplelog::SimpleLogger::init(LevelFilter::Info, Config::default())
-                .unwrap_or_else(|err| eprintln!("Failed to init fallback logger: {}", err));
-        });
-    }
+        use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+        TermLogger::new(level, Config::default(), TerminalMode::Mixed, ColorChoice::Auto)
+    };
 
-    panic::set_hook(Box::new(|panic_info| {
-        let location = panic_info.location().unwrap();
-
-        let msg = match panic_info.payload().downcast_ref::<&'static str>() {
-            Some(s) => *s,
-            None => match panic_info.payload().downcast_ref::<String>() {
-                Some(s) => &s[..],
-                None => "Unknown panic message",
-            },
-        };
-
-        let error = format!(
-            "CRITICAL PANIC in file '{}' at line {}: {}",
-            location.file(),
-            location.line(),
-            msg
-        );
-
-        log::error!("{}", error);
-        crate::telemetry::send(
-            TelemetryData::Panic { error: error.clone() }
-        );
-    }));
+    crate::telemetry::install_logger(inner, level);
+    crate::telemetry::install_panic_hook();
 }
 
 #[zbus::proxy(
@@ -234,14 +208,20 @@ pub fn run_as_service(tx: Sender<InternalEvent>) -> zbus::Result<()> {
     Ok(())
 }
 
-pub fn get_board_name() -> String {
-    fs::read_to_string("/sys/devices/virtual/dmi/id/board_name")
+/// Reads a single DMI field. Empty strings are treated as absent
+fn dmi(field: &str) -> Option<String> {
+    fs::read_to_string(format!("/sys/devices/virtual/dmi/id/{field}"))
+        .ok()
         .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| "Unknown Host".to_string())
+        .filter(|s| !s.is_empty())
 }
 
-pub fn get_system_info() -> (String, String, String) {
-    let cpu_name = fs::read_to_string("/proc/cpuinfo")
+pub fn get_board_name() -> String {
+    dmi("board_name").unwrap_or_else(|| "Unknown Host".to_string())
+}
+
+pub fn get_host_info() -> HostInfo {
+    let cpu = fs::read_to_string("/proc/cpuinfo")
         .unwrap_or_default()
         .lines()
         .find(|line| line.starts_with("model name"))
@@ -249,7 +229,7 @@ pub fn get_system_info() -> (String, String, String) {
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "Unknown CPU".to_string());
 
-    let os_name = fs::read_to_string("/etc/os-release")
+    let os = fs::read_to_string("/etc/os-release")
         .unwrap_or_default()
         .lines()
         .find(|line| line.starts_with("PRETTY_NAME="))
@@ -257,11 +237,18 @@ pub fn get_system_info() -> (String, String, String) {
         .map(|s| s.trim_matches('"').to_string())
         .unwrap_or_else(|| "Linux".to_string());
 
-    let host_name = fs::read_to_string("/sys/devices/virtual/dmi/id/product_name")
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| "Unknown Host".to_string());
+    let bios = match (dmi("bios_version"), dmi("bios_date")) {
+        (Some(version), Some(date)) => Some(format!("{version} ({date})")),
+        (version, _) => version,
+    };
 
-    let board_name = get_board_name();
-
-    (cpu_name, os_name, format!("{} ({})", host_name, board_name))
+    HostInfo {
+        vendor: dmi("sys_vendor").unwrap_or_default(),
+        product: dmi("product_name").unwrap_or_default(),
+        motherboard: get_board_name(),
+        bios,
+        cpu,
+        os,
+        arch: std::env::consts::ARCH.to_string(),
+    }
 }
