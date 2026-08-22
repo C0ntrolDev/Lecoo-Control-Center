@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
-use ipc::PowerLedMode;
+use lecoo_types::ec_types::{BreathConfig, PowerLedMode};
 use super::EcDevice;
 use crate::ec::{Addr, LedOps, PwmSpec};
 

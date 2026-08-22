@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ipc::{FanIndex, SensorRole};
+use lecoo_types::{caps::SensorRole, ec_types::FanIndex};
 use super::EcDevice;
 use crate::ec::{REG_CHIP_ID1, REG_CHIP_ID2, REG_CHIP_VER};
 

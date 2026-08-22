@@ -1,6 +1,6 @@
 use std::{sync::{OnceLock, atomic::{AtomicBool, AtomicU64, Ordering}, mpsc::{Receiver, RecvTimeoutError, Sender}}, time::Duration};
 
-use ipc::{TelemetryData, TelemetryPayload};
+use lecoo_types::telemetry::{TelemetryData, TelemetryPayload};
 
 use crate::ec;
 
@@ -60,8 +60,10 @@ fn worker_loop(rx: Receiver<TelemetryData>) {
                                 if let Ok((cpu_rpm, gpu_rpm)) = ec::read_fans_rpm(ec) {
                                     let status = TelemetryData::Status {
                                         profile,
-                                        temps: [cpu_temp as u32, sys_temp as u32],
-                                        fans: [cpu_rpm as u32, gpu_rpm as u32],
+                                        cpu_temp_c: cpu_temp as u32,
+                                        sys_temp_c: sys_temp as u32,
+                                        cpu_fan_rpm: cpu_rpm as u32,
+                                        gpu_fan_rpm: gpu_rpm as u32,
                                     };
                                     send_to_server(status);
                                 }
@@ -79,28 +81,22 @@ fn worker_loop(rx: Receiver<TelemetryData>) {
 }
 
 fn send_to_server(data: TelemetryData) {
-    let id = TELEMETRY_ID.load(Ordering::Relaxed);
-
     let payload = TelemetryPayload {
-        id,
-        data
+        id: TELEMETRY_ID.load(Ordering::Relaxed),
+        data,
     };
 
-    let config = bincode::config::standard();
-    let encoded_bytes = match bincode::encode_to_vec(&payload, config) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            log::error!("Failed to encode telemetry data: {}", e);
-            return;
-        }
+    let body = match serde_json::to_vec(&payload) {
+        Ok(b) => b,
+        Err(e) => { log::error!("Failed to encode telemetry: {e}"); return; }
     };
 
-    match ureq::post("https://lab.lavashik.dev/telemetry")
+    match ureq::post("https://lab.lavashik.dev/telemetry/v2")
         .header("X-Daemon-Version", crate::VERSION)
-        .header("Content-Type", "application/octet-stream")
-        .send(&encoded_bytes)
+        .header("Content-Type", "application/json")
+        .send(&body)
     {
-        Ok(_response) => {},
-        Err(e) => log::warn!("Failed to send telemetry: {}", e),
+        Ok(_) => {}
+        Err(e) => log::warn!("Failed to send telemetry: {e}"),
     }
 }

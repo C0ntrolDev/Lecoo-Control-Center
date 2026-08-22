@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use lecoo_types::caps::SensorRole;
 use std::sync::Mutex;
 
 #[cfg(target_os = "linux")]
@@ -72,7 +73,7 @@ impl EcDevice {
     /// Temperature stays the primary signal; RSOC only breaks ties between
     /// several plausible windows, so this never rejects what used to work.
     fn detect_hram(&self) -> Result<u16> {
-        let temp = match self.profile.sensor(ipc::SensorRole::Cpu).map(|s| s.addr) {
+        let temp = match self.profile.sensor(SensorRole::Cpu).map(|s| s.addr) {
             Some(Addr::Ram(off)) => off,
             _ => bail!("Profile {} has no RAM-based CPU sensor", self.profile.id),
         };

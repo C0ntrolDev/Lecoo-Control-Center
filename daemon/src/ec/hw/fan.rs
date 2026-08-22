@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use ipc::{FanIndex, FanMode};
+use lecoo_types::ec_types::{FanIndex, FanMode};
 use super::EcDevice;
 
 pub fn apply_fan_mode(ec: &EcDevice, fan: &FanIndex, mode: &FanMode) -> Result<()> {

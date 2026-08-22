@@ -1,14 +1,16 @@
 use super::*;
-use ipc::{Capabilities, ChargeCaps, FanCaps, KbdCaps, LedCaps};
+use lecoo_types::caps::{Capabilities, ChargeCaps, FanCaps, KbdCaps, LedCaps};
 
 impl BoardProfile {
     pub fn caps(&self, daemon_version: &str) -> Capabilities {
+        #[rustfmt::skip]
         let kbd = match self.kbd {
             KbdOps::None           => KbdCaps::default(),
             KbdOps::PwmDuty { .. } => KbdCaps { on_off: true, levels: true, custom: true },
             KbdOps::Levels { .. }  => KbdCaps { on_off: true, levels: true, custom: true },
         };
 
+        #[rustfmt::skip]
         let led = match self.led {
             LedOps::None             => LedCaps::default(),
             LedOps::Pwm { .. }       => LedCaps { on_off: true, brightness: true, animation: false },
@@ -52,7 +54,7 @@ impl BoardProfile {
         }
     }
 
-    fn preset_list(&self) -> Vec<(String, ipc::ChargeIntent)> {
+    fn preset_list(&self) -> Vec<(String, ChargeIntent)> {
         self.charge_presets.iter()
             .filter(|p| self.supports_intent(&p.intent))
             .map(|p| (p.name.to_string(), p.intent))
@@ -60,8 +62,8 @@ impl BoardProfile {
     }
 
     /// Static support only. Runtime preconditions live in the charge backend.
-    pub fn supports_intent(&self, intent: &ipc::ChargeIntent) -> bool {
-        use ipc::ChargeIntent as I;
+    pub fn supports_intent(&self, intent: &ChargeIntent) -> bool {
+        use ChargeIntent as I;
         match (self.charge, intent) {
             (ChargeOps::None, _) => false,
             (_, I::Full) => true,

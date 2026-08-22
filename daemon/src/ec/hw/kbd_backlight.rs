@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use ipc::KeyboardBacklightLevel;
+use lecoo_types::ec_types::KeyboardBacklightLevel;
 use super::EcDevice;
 use crate::ec::KbdOps;
 

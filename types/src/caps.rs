@@ -31,7 +31,6 @@ pub struct LedCaps { pub on_off: bool, pub brightness: bool, pub animation: bool
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SensorRole { Cpu, Sys }
 
-/// TODO: pretty heavy. Store in BOX
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Capabilities {
     pub board: String,

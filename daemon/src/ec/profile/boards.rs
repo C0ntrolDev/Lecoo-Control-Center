@@ -1,6 +1,8 @@
 use super::*;
-use ipc::{ChargeIntent, ChargeRange, FanIndex, PowerProfile, SensorRole};
+use lecoo_types::ec_types::{ChargeIntent, ChargeRange, FanIndex, PowerProfile};
+use lecoo_types::caps::SensorRole;
 
+#[rustfmt::skip]
 const PROFILE_MAP: &[(u8, PowerProfile)] = &[
     (1, PowerProfile::Silent),
     (2, PowerProfile::Default),
@@ -37,6 +39,7 @@ const N155A_SENSORS: &[SensorSpec] = &[
     SensorSpec { role: SensorRole::Sys, addr: Addr::Ram(0x62) },
 ];
 
+#[rustfmt::skip]
 const N155A_PWM: PwmSpec = PwmSpec {
     bypass:     Addr::Ram(0x55),
     mux:        Addr::Reg(0x1610),
@@ -46,6 +49,7 @@ const N155A_PWM: PwmSpec = PwmSpec {
     clock_ctrl: Addr::Reg(0x1823),
 };
 
+#[rustfmt::skip]
 const N155A_PRESETS: &[PresetSpec] = &[
     PresetSpec { name: "full",     intent: ChargeIntent::Full },
     PresetSpec { name: "desk",     intent: ChargeIntent::Preserve(Some(ChargeRange { min: 40, max: 50 })) },
@@ -56,12 +60,14 @@ const N155A_PRESETS: &[PresetSpec] = &[
 
 /// No custom range on this board, so "lifespan" maps directly to the firmware
 /// policy instead of being silently downgraded from a range at call time.
+#[rustfmt::skip]
 const N161A_PRESETS: &[PresetSpec] = &[
     PresetSpec { name: "full",     intent: ChargeIntent::Full },
     PresetSpec { name: "lifespan", intent: ChargeIntent::Preserve(None) },
     PresetSpec { name: "hold",     intent: ChargeIntent::Freeze },
 ];
 
+#[rustfmt::skip]
 pub const N155A: BoardProfile = BoardProfile {
     id: "N155A",
     dmi: &["N155A"],

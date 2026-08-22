@@ -1,8 +1,8 @@
 // #![windows_subsystem = "windows"]
 
 use anyhow::{Context, Result};
-use ipc::{CurrentSettings, IpcConnection, IpcRequest, IpcServer};
-use log::info;
+use ipc::{DaemonWorker, IpcServer};
+use lecoo_types::{caps, settings::CurrentSettings, telemetry::TelemetryData};
 use std::{sync::{Mutex, OnceLock}, thread};
 
 use crate::handlers::DaemonState;
@@ -14,7 +14,7 @@ mod telemetry;
 
 pub static EC: OnceLock<ec::EcDevice> = OnceLock::new();
 pub static STATE: OnceLock<Mutex<CurrentSettings>> = OnceLock::new();
-pub static UNSUPPORTED: OnceLock<ipc::UnsupportedInfo> = OnceLock::new();
+pub static UNSUPPORTED: OnceLock<caps::UnsupportedInfo> = OnceLock::new();
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -33,7 +33,7 @@ fn resolve_profile(args: &[String], board: &str) -> Option<&'static ec::BoardPro
     ec::detect(board)
 }
 
-fn process_ipc_connection(mut conn: IpcConnection) {
+fn process_ipc_connection(mut conn: DaemonWorker) {
     thread::spawn(move || {
         if let Err(e) = conn.accept_handshake() {
             log::error!("Handshake rejected: {}", e);
@@ -41,7 +41,7 @@ fn process_ipc_connection(mut conn: IpcConnection) {
         }
 
         loop {
-            match conn.recv::<IpcRequest>() {
+            match conn.recv() {
                 Ok(req) => {
                     let res = handlers::do_work(&req);
 
@@ -72,7 +72,7 @@ fn process_ipc_connection(mut conn: IpcConnection) {
 
 /// Process system/service events
 fn process_service(rx_in_core: std::sync::mpsc::Receiver<services::InternalEvent>) {
-    use ipc::{PowerLedMode, BreathConfig};
+    use lecoo_types::ec_types::{PowerLedMode, BreathConfig};
     let ec = EC.get().unwrap();
 
     let read_and_save_state = |ec: &ec::EcDevice| {
@@ -184,12 +184,12 @@ fn main() -> Result<()> {
         let chip = ec::probe_chip_only()
             .map(|(id1, id2, ver)| format!("IT{:02X}{:02X}-{:02X}", id1, id2, ver));
 
-        let _ = UNSUPPORTED.set(ipc::UnsupportedInfo {
+        let _ = UNSUPPORTED.set(caps::UnsupportedInfo {
             board: board.clone(),
             chip: chip.clone(),
         });
 
-        telemetry::send(ipc::TelemetryData::Unsupported {
+        telemetry::send(TelemetryData::Unsupported {
             motherboard: board.clone(),
             chip,
         });
@@ -212,7 +212,7 @@ fn main() -> Result<()> {
 
         let (chip_id1, chip_id2, chip_ver) = ec::read_system_info(&ec)?;
 
-        telemetry::send(ipc::TelemetryData::Startup {
+        telemetry::send(TelemetryData::Startup {
             firmware: format!("IT{:02X}{:02X}-{:02X}", chip_id1, chip_id2, chip_ver),
             offset: ec.hram_offset(),
             cpu: cpu_name,

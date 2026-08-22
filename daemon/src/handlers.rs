@@ -1,8 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
-use ipc::{
-    ChargeIntent, ChargeLimit, ChargeRange, CurrentSettings, DaemonCommand, DaemonResponse,
-    FanIndex, FanMode, IpcRequest, IpcResponse, KeyboardBacklightLevel, PowerLedMode, PowerProfile,
-};
+use ipc::{DaemonCommand, ErrorCode, IpcError, IpcRequest, IpcResponse, SystemInfo};
+use lecoo_types::{caps::ChargeStatus, ec_types::*, settings::CurrentSettings};
 use crate::{ec::{self, EcDevice}, telemetry};
 
 #[cfg(windows)]
@@ -22,28 +20,19 @@ impl DaemonState for CurrentSettings {
         let dir = std::path::Path::new(STATE_PATH).parent().context("Invalid state path")?;
         std::fs::create_dir_all(dir)?;
 
-        let file = std::fs::File::create(STATE_PATH)?;
-        let mut writer = std::io::BufWriter::new(file);
+        let tmp = format!("{STATE_PATH}.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
+        std::fs::rename(&tmp, STATE_PATH)?;
 
-        bincode::encode_into_std_write(self, &mut writer, bincode::config::standard())?;
         Ok(())
     }
 
     fn load() -> Result<Self> {
-        if !std::fs::exists(STATE_PATH).context("Cannot get access to state file")? {
-            return Ok(Self::default());
+        match std::fs::read(STATE_PATH) {
+            Ok(bytes) => serde_json::from_slice(&bytes).context("Failed to parse state file"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(e).context("Failed to read state file"),
         }
-        let file = std::fs::File::open(STATE_PATH).context("Failed to open state file")?;
-        let mut reader = std::io::BufReader::new(file);
-        let state: Self = bincode::decode_from_std_read(&mut reader, bincode::config::standard())
-            .context("Failed decode state file!")?;
-
-        if state.version != ipc::SETINGS_SCHEMA_VER {
-            log::warn!("State schema {} != {}, resetting to defaults",
-                       state.version, ipc::SETINGS_SCHEMA_VER);
-            return Ok(Self::default());
-        }
-        Ok(state)
     }
 
     fn load_or_default() -> Self {
@@ -94,7 +83,7 @@ impl DaemonState for CurrentSettings {
 
 pub fn do_work(req: &IpcRequest) -> IpcResponse {
     if let Some(info) = crate::UNSUPPORTED.get() {
-        return IpcResponse::Unsupported(info.clone());
+        return IpcResponse::Error(IpcError::new(ErrorCode::UnsupportedHardware, "", Some(info.clone())))
     }
     let ec = crate::EC.get().unwrap();
 
@@ -106,7 +95,6 @@ pub fn do_work(req: &IpcRequest) -> IpcResponse {
         IpcRequest::GetChargeLimit => get_charge_limit(ec),
         IpcRequest::GetPowerProfile => get_power_profile(ec),
         IpcRequest::GetKeyboardBacklight => get_keyboard_backlight(ec),
-        IpcRequest::GetCapabilities => get_capabilities(ec),
         IpcRequest::GetChargeStatus => get_charge_status(ec),
 
         // SETTERS:
@@ -119,11 +107,13 @@ pub fn do_work(req: &IpcRequest) -> IpcResponse {
 
         // Daemon command
         IpcRequest::DaemonCommand(command) => process_daemon_command(ec, command),
+
+        IpcRequest::Unknown => Ok(IpcResponse::Error(IpcError::new(ErrorCode::UnsupportedRequest, "", None))),
     };
 
     match result {
         Ok(success) => success,
-        Err(err) => IpcResponse::Error(format!("Processing request failed: {}", err)),
+        Err(err) => IpcResponse::Error(IpcError::new(ErrorCode::Internal, err.to_string(), None)),
     }
 }
 
@@ -156,8 +146,10 @@ fn process_daemon_command(ec: &EcDevice, command: &DaemonCommand) -> Result<IpcR
             state.restore_state(ec)?;
             Ok(IpcResponse::Success)
         }
-        DaemonCommand::GetSettings => Ok(IpcResponse::DaemonResponse(DaemonResponse::Settings(get_state()?.clone()))),
-        DaemonCommand::GetTelemetryId => Ok(IpcResponse::DaemonResponse(DaemonResponse::TelemetryId(get_state()?.telemetry_client_id))),
+
+        DaemonCommand::GetSettings => Ok(IpcResponse::Settings(Box::new(get_state()?.clone()))),
+        DaemonCommand::GetTelemetryId => Ok(IpcResponse::TelemetryId(get_state()?.telemetry_client_id)),
+        DaemonCommand::GetCapabilities => Ok(IpcResponse::Capabilities(Box::new(ec.profile.caps(crate::VERSION)))),
 
         _ => todo!()
     }
@@ -165,9 +157,6 @@ fn process_daemon_command(ec: &EcDevice, command: &DaemonCommand) -> Result<IpcR
 
 // Getters
 
-fn get_capabilities(ec: &EcDevice) -> Result<IpcResponse> {
-    Ok(IpcResponse::Capabilities(Box::new(ec.profile.caps(crate::VERSION))))
-}
 
 fn get_charge_status(ec: &EcDevice) -> Result<IpcResponse> {
     let desired = get_state()?.charge;
@@ -182,7 +171,7 @@ fn get_charge_status(ec: &EcDevice) -> Result<IpcResponse> {
         }
     };
 
-    Ok(IpcResponse::ChargeStatus(ipc::ChargeStatus {
+    Ok(IpcResponse::ChargeStatus(ChargeStatus {
         desired,
         effective,
         soc: ec::read_battery_rsoc(ec)?,
@@ -193,11 +182,11 @@ fn get_charge_status(ec: &EcDevice) -> Result<IpcResponse> {
 
 fn set_charge_intent(ec: &EcDevice, intent: &ChargeIntent) -> Result<IpcResponse> {
     match ec::charge_availability(ec, intent)? {
-        ec::Availability::Unsupported(reason) => return Ok(IpcResponse::Error(reason)),
+        ec::Availability::Unsupported(reason) => return Ok(IpcResponse::Error(IpcError::new(ErrorCode::UnsupportedHardware, reason, None))),
         ec::Availability::Blocked(reason) => {
             get_state()?.charge = *intent;
             let _ = get_state()?.save();
-            return Ok(IpcResponse::Precondition(reason));
+            return Ok(IpcResponse::Error(IpcError::new(ErrorCode::Precondition, reason, None)));
         }
         ec::Availability::Ready => {}
     }
@@ -222,7 +211,7 @@ fn set_charge_limit_legacy(ec: &EcDevice, limit: &ChargeLimit) -> Result<IpcResp
 fn get_charge_limit(ec: &EcDevice) -> Result<IpcResponse> {
     let (min, max) = ec::read_charge_limit(ec)?;
     let current = ec::read_battery_rsoc(ec)?;
-    Ok(IpcResponse::ChargeLimit(min, max, current))
+    Ok(IpcResponse::ChargeLimit { min, max, current })
 }
 
 fn get_power_profile(ec: &EcDevice) -> Result<IpcResponse> {
@@ -238,20 +227,26 @@ fn get_keyboard_backlight(ec: &EcDevice) -> Result<IpcResponse> {
 fn get_system_state(ec: &EcDevice) -> Result<IpcResponse> {
     let (chip_id1, chip_id2, chip_ver) = ec::read_system_info(ec)?;
 
-    let chip_name = format!("IT{:02X}{:02X}", chip_id1, chip_id2);
+    let chip = format!("IT{:02X}{:02X}", chip_id1, chip_id2);
     let revision = format!("{:02X}", chip_ver);
 
-    Ok(IpcResponse::SystemInfo(chip_name, revision, ec.hram_offset(), crate::VERSION.to_string()))
+    let info = SystemInfo {
+        chip,
+        revision,
+        hram_offset: ec.hram_offset(),
+        daemon_version: crate::VERSION.to_string(),
+    };
+    Ok(IpcResponse::SystemInfo(info))
 }
 
 fn get_fans_rpm(ec: &EcDevice) -> Result<IpcResponse> {
-    let (cpu_rpm, gpu_rpm) = ec::read_fans_rpm(ec)?;
-    Ok(IpcResponse::FanRPM(cpu_rpm, gpu_rpm))
+    let (cpu, gpu) = ec::read_fans_rpm(ec)?;
+    Ok(IpcResponse::FanRpm { cpu, gpu })
 }
 
 fn get_temperatures(ec: &EcDevice) -> Result<IpcResponse> {
-    let (cpu_temp, sys_temp) = ec::read_temperatures(ec)?;
-    Ok(IpcResponse::Temp(cpu_temp, sys_temp))
+    let (cpu_c, sys_c) = ec::read_temperatures(ec)?;
+    Ok(IpcResponse::Temps { cpu_c, sys_c })
 }
 
 // Setters

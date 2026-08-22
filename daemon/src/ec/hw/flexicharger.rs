@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use ipc::{ChargeIntent, ChargeRange};
+use lecoo_types::ec_types::{ChargeIntent, ChargeRange};
 use super::EcDevice;
 use crate::ec::{Addr, ChargeOps};
 

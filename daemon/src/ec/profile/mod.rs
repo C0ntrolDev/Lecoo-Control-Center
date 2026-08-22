@@ -1,4 +1,4 @@
-use ipc::{ChargeIntent, FanIndex, PowerProfile, SensorRole};
+use lecoo_types::{caps::SensorRole, ec_types::{ChargeIntent, FanIndex, PowerProfile}};
 
 mod boards;
 mod caps;

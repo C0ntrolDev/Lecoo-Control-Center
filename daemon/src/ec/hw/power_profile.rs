@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
-use ipc::{IpcResponse, PowerProfile};
+use ipc::IpcResponse;
+use lecoo_types::ec_types::PowerProfile;
 use super::EcDevice;
 
 pub fn apply_power_profile(ec: &EcDevice, profile: &PowerProfile) -> Result<IpcResponse> {

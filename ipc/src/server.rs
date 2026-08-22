@@ -2,7 +2,7 @@ use std::io;
 
 use interprocess::local_socket::{Listener, ListenerOptions, prelude::*};
 
-use crate::{IpcConnection, get_socket_name};
+use crate::{DaemonWorker, get_socket_name};
 
 pub struct IpcServer {
     listener: Listener,
@@ -20,8 +20,8 @@ impl IpcServer {
             use interprocess::os::windows::security_descriptor::SecurityDescriptor;
             use widestring::u16cstr;
 
-            // SDDL: SY (System) and BA (Admins) — full access (GA)
-            // BU (Built-in Users) — read/write (GRGW) so that clients can connect
+            // SDDL: SY (System) and BA (Admins) - full access (GA)
+            // BU (Built-in Users) - read/write (GRGW) so that clients can connect
             let sddl = u16cstr!("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)");
             let sd = SecurityDescriptor::deserialize(sddl)?;
             options = options.security_descriptor(sd);
@@ -39,8 +39,8 @@ impl IpcServer {
     }
 
     /// Iterator over incoming connections
-    pub fn accept(&mut self) -> io::Result<IpcConnection> {
+    pub fn accept(&mut self) -> io::Result<DaemonWorker> {
         let stream = self.listener.accept()?;
-        Ok(IpcConnection { stream })
+        Ok(DaemonWorker::new(stream))
     }
 }

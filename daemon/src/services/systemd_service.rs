@@ -1,6 +1,7 @@
 use std::fs;
 use std::sync::mpsc::Sender;
 use std::{panic, thread};
+use lecoo_types::telemetry::TelemetryData;
 use zbus::blocking::Connection;
 use super::InternalEvent;
 
@@ -48,7 +49,7 @@ pub fn init_logger() {
 
         log::error!("{}", error);
         crate::telemetry::send(
-            ipc::TelemetryData::Panic { error: error.clone() }
+            TelemetryData::Panic { error: error.clone() }
         );
     }));
 }

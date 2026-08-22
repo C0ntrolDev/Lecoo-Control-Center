@@ -9,6 +9,7 @@ edition = "2024"
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 lecoo-types.workspace = true
 interprocess = "2.4"
 
