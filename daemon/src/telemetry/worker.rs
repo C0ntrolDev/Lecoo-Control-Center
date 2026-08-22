@@ -10,7 +10,7 @@ use crate::ec;
 
 const URL: &str = "https://lab.lavashik.dev/telemetry/v2";
 const INTERVAL: Duration = Duration::from_secs(300);
-const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_TIMEOUT: Duration = Duration::from_secs(35);
 const MAX_PENDING: usize = 32;
 
 pub(super) fn run(rx: Receiver<TelemetryData>) {
