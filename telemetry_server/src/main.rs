@@ -8,10 +8,9 @@ use std::{
 };
 use tiny_http::{Method, Request, Response, Server};
 
-mod db;
-mod ingest;
-mod legacy;
+use telemetry_server::{db, ingest, legacy};
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 static SERVER_ADDR: &str = "127.0.0.1:8368";
 const MAX_BODY_SIZE: usize = 512 * 1024;
 
@@ -28,7 +27,7 @@ fn main() {
     let db = Arc::new(Mutex::new(db::open("telemetry.db")));
 
     let server = Server::http(SERVER_ADDR).expect("Failed to start server");
-    info!("Telemetry server listening on http://{}", SERVER_ADDR);
+    info!("Telemetry server ({}) listening on http://{}", VERSION, SERVER_ADDR);
 
     for request in server.incoming_requests() {
         let db = Arc::clone(&db);

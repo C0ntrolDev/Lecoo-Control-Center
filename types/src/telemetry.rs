@@ -62,12 +62,13 @@ pub enum TelemetryData {
         chip: Option<String>,
     },
 
-    /// An `log::error!` record forwarded from the daemon, deduplicated by call
-    /// site so one flapping error cannot drown out everything else.
+    /// A warn or error record forwarded from the daemon.
     ErrorLog {
+        level: String,
         message: String,
         module: String,
         line: u32,
+        count: u32,
     },
 
     Panic {
