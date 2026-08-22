@@ -10,7 +10,9 @@ license.workspace = true
 [dependencies]
 tiny_http = "0.12.0"
 rusqlite = { version = "0.31", features = ["bundled"] }
+serde.workspace = true
+serde_json.workspace = true
+# Only to read the pre-0.6 wire format, see src/legacy.rs
 bincode = "2.0"
-ipc = { path = "../ipc" }
 simplelog = "0.11"
 log = "0.4"
