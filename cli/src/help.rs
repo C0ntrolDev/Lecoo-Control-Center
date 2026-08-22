@@ -4,20 +4,34 @@ use rust_i18n::t;
 use std::io::IsTerminal;
 
 #[inline]
-pub fn bold() -> &'static str { if std::io::stdout().is_terminal() { "\x1b[1m" } else { "" } }
+pub fn bold() -> &'static str {
+    if std::io::stdout().is_terminal() { "\x1b[1m" } else { "" }
+}
 #[inline]
-pub fn bold_underline() -> &'static str { if std::io::stdout().is_terminal() { "\x1b[1;4m" } else { "" } }
+pub fn bold_underline() -> &'static str {
+    if std::io::stdout().is_terminal() { "\x1b[1;4m" } else { "" }
+}
 
 #[inline]
-pub fn err_red() -> &'static str { if std::io::stderr().is_terminal() { "\x1b[31m" } else { "" } }
+pub fn err_red() -> &'static str {
+    if std::io::stderr().is_terminal() { "\x1b[31m" } else { "" }
+}
 #[inline]
-pub fn err_bold() -> &'static str { if std::io::stderr().is_terminal() { "\x1b[1m" } else { "" } }
+pub fn err_bold() -> &'static str {
+    if std::io::stderr().is_terminal() { "\x1b[1m" } else { "" }
+}
 #[inline]
-pub fn err_bold_red() -> &'static str { if std::io::stderr().is_terminal() { "\x1b[1;31m" } else { "" } }
+pub fn err_bold_red() -> &'static str {
+    if std::io::stderr().is_terminal() { "\x1b[1;31m" } else { "" }
+}
 #[inline]
-pub fn err_reset() -> &'static str { if std::io::stderr().is_terminal() { "\x1b[0m" } else { "" } }
+pub fn err_reset() -> &'static str {
+    if std::io::stderr().is_terminal() { "\x1b[0m" } else { "" }
+}
 #[inline]
-pub fn reset() -> &'static str { if std::io::stdout().is_terminal() { "\x1b[0m" } else { "" } }
+pub fn reset() -> &'static str {
+    if std::io::stdout().is_terminal() { "\x1b[0m" } else { "" }
+}
 
 pub fn bin_name() -> String {
     std::env::args()

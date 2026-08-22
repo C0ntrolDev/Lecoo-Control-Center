@@ -1,21 +1,24 @@
-use std::fs::create_dir_all;
-use std::path::Path;
-use std::sync::{OnceLock, mpsc::Sender};
-use std::time::Duration;
 use file_rotate::compression::Compression;
 use file_rotate::suffix::AppendCount;
 use file_rotate::{ContentLimit, FileRotate};
 use lecoo_types::telemetry::HostInfo;
-use winreg::enums::*;
-use winreg::RegKey;
 use log::{LevelFilter, info};
 use simplelog::{Config, WriteLogger};
+use std::fs::create_dir_all;
+use std::path::Path;
+use std::sync::{OnceLock, mpsc::Sender};
+use std::time::Duration;
 use windows_service::service::ServiceType;
 use windows_service::{
-    define_windows_service, service::{
-        PowerEventParam, ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus
-    }, service_control_handler::{self, ServiceControlHandlerResult}, service_dispatcher
+    define_windows_service,
+    service::{
+        PowerEventParam, ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
+    },
+    service_control_handler::{self, ServiceControlHandlerResult},
+    service_dispatcher,
 };
+use winreg::RegKey;
+use winreg::enums::*;
 
 use crate::services::InternalEvent;
 
@@ -50,12 +53,14 @@ pub fn get_board_name() -> String {
 pub fn get_host_info() -> HostInfo {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
-    let cpu = hklm.open_subkey("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0")
+    let cpu = hklm
+        .open_subkey("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0")
         .and_then(|key| key.get_value::<String, _>("ProcessorNameString"))
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "Unknown CPU".to_string());
 
-    let (mut os_name, os_build) = hklm.open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion")
+    let (mut os_name, os_build) = hklm
+        .open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion")
         .map(|key| {
             let name = key.get_value::<String, _>("ProductName").unwrap_or_else(|_| "Windows".to_string());
             let build = key.get_value::<String, _>("CurrentBuild").unwrap_or_else(|_| "0".to_string());
@@ -123,8 +128,7 @@ fn my_service_main(_arguments: Vec<std::ffi::OsString>) {
                             let _ = tx.send(InternalEvent::SystemHibernating);
                         }
 
-                        PowerEventParam::ResumeAutomatic
-                        | PowerEventParam::ResumeSuspend => {
+                        PowerEventParam::ResumeAutomatic | PowerEventParam::ResumeSuspend => {
                             let _ = tx.send(InternalEvent::SystemWakingUp);
                         }
 
@@ -135,15 +139,16 @@ fn my_service_main(_arguments: Vec<std::ffi::OsString>) {
                 _ => ServiceControlHandlerResult::NotImplemented,
             }
         },
-    ).expect("Failed to register service control handler");
+    )
+    .expect("Failed to register service control handler");
 
     // Notify the Service Control Manager that the service is running & ready
     let next_status = ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
         current_state: ServiceState::Running,
         controls_accepted: ServiceControlAccept::STOP
-                | ServiceControlAccept::POWER_EVENT
-                | ServiceControlAccept::SHUTDOWN,
+            | ServiceControlAccept::POWER_EVENT
+            | ServiceControlAccept::SHUTDOWN,
         exit_code: ServiceExitCode::Win32(0),
         checkpoint: 0,
         wait_hint: Duration::default(),
@@ -157,15 +162,17 @@ fn my_service_main(_arguments: Vec<std::ffi::OsString>) {
     std::thread::sleep(Duration::from_millis(500));
 
     info!("TIME TO STOP!");
-    status_handle.set_service_status(ServiceStatus {
-        service_type: ServiceType::OWN_PROCESS,
-        current_state: ServiceState::Stopped,
-        controls_accepted: ServiceControlAccept::empty(),
-        exit_code: ServiceExitCode::Win32(0),
-        checkpoint: 0,
-        wait_hint: Duration::default(),
-        process_id: None,
-    }).unwrap();
+    status_handle
+        .set_service_status(ServiceStatus {
+            service_type: ServiceType::OWN_PROCESS,
+            current_state: ServiceState::Stopped,
+            controls_accepted: ServiceControlAccept::empty(),
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::default(),
+            process_id: None,
+        })
+        .unwrap();
 }
 
 #[repr(C)]
@@ -196,7 +203,7 @@ pub fn init_logger() {
         AppendCount::new(3),
         ContentLimit::Bytes(5 * 1024 * 1024),
         Compression::None,
-        None
+        None,
     );
 
     // Built rather than installed: telemetry wraps it to forward error records.

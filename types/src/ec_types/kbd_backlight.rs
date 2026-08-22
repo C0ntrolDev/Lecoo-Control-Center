@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 /// Represents the keyboard backlight brightness levels
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", content = "c")]
-pub enum KeyboardBacklightLevel { // TODO: not every revision supports all levels!!!!! fix it later
+pub enum KeyboardBacklightLevel {
+    // TODO: not every revision supports all levels!!!!! fix it later
     #[default]
     Off,
     Low,

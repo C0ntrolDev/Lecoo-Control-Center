@@ -26,9 +26,21 @@ enum PowerProfile {
 #[derive(Debug, Decode, Serialize)]
 #[serde(tag = "t", content = "c")]
 enum DataV2 {
-    Startup { firmware: String, offset: u16, cpu: String, os: String, motherboard: String },
-    Status { profile: PowerProfile, temps: [u32; 2], fans: [u32; 2] },
-    Panic { error: String },
+    Startup {
+        firmware: String,
+        offset: u16,
+        cpu: String,
+        os: String,
+        motherboard: String,
+    },
+    Status {
+        profile: PowerProfile,
+        temps: [u32; 2],
+        fans: [u32; 2],
+    },
+    Panic {
+        error: String,
+    },
 }
 
 /// The same, before `motherboard` was added. `Status` and `Panic` are laid out
@@ -36,9 +48,20 @@ enum DataV2 {
 #[derive(Debug, Decode, Serialize)]
 #[serde(tag = "t", content = "c")]
 enum DataV1 {
-    Startup { firmware: String, offset: u16, cpu: String, os: String },
-    Status { profile: PowerProfile, temps: [u32; 2], fans: [u32; 2] },
-    Panic { error: String },
+    Startup {
+        firmware: String,
+        offset: u16,
+        cpu: String,
+        os: String,
+    },
+    Status {
+        profile: PowerProfile,
+        temps: [u32; 2],
+        fans: [u32; 2],
+    },
+    Panic {
+        error: String,
+    },
 }
 
 #[derive(Debug, Decode, Serialize)]

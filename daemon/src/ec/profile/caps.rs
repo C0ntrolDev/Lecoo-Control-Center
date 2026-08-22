@@ -40,13 +40,9 @@ impl BoardProfile {
         Capabilities {
             board: self.id.to_string(),
             daemon_version: daemon_version.to_string(),
-            fans: self.fans.iter()
-                .map(|f| FanCaps { index: f.index, duty_max: f.duty_max })
-                .collect(),
+            fans: self.fans.iter().map(|f| FanCaps { index: f.index, duty_max: f.duty_max }).collect(),
             sensors: self.sensors.iter().map(|s| s.role).collect(),
-            power_profiles: self.power
-                .map(|p| p.map.iter().map(|(_, pr)| *pr).collect())
-                .unwrap_or_default(),
+            power_profiles: self.power.map(|p| p.map.iter().map(|(_, pr)| *pr).collect()).unwrap_or_default(),
             kbd,
             led,
             battery_leds: self.battery_leds.is_some(),
@@ -55,7 +51,8 @@ impl BoardProfile {
     }
 
     fn preset_list(&self) -> Vec<(String, ChargeIntent)> {
-        self.charge_presets.iter()
+        self.charge_presets
+            .iter()
             .filter(|p| self.supports_intent(&p.intent))
             .map(|p| (p.name.to_string(), p.intent))
             .collect()
@@ -67,8 +64,9 @@ impl BoardProfile {
         match (self.charge, intent) {
             (ChargeOps::None, _) => false,
             (_, I::Full) => true,
-            (ChargeOps::FlexiCharger { bounds, .. }, I::Preserve(Some(r))) =>
-                r.min < r.max && r.min >= bounds.0 && r.max <= bounds.1,
+            (ChargeOps::FlexiCharger { bounds, .. }, I::Preserve(Some(r))) => {
+                r.min < r.max && r.min >= bounds.0 && r.max <= bounds.1
+            }
             (ChargeOps::FlexiCharger { .. }, I::Preserve(None)) => false,
             (ChargeOps::FlexiCharger { freeze_verified, .. }, I::Freeze) => freeze_verified,
             (ChargeOps::PolicyByte { .. }, I::Preserve(Some(_))) => false,

@@ -2526,10 +2526,12 @@ dependencies = [
 
 [[package]]
 name = "ipc"
-version = "0.5.1-beta"
+version = "0.5.2-beta"
 dependencies = [
- "bincode",
  "interprocess",
+ "lecoo-types",
+ "serde",
+ "serde_json",
  "widestring",
 ]
 
@@ -2684,7 +2686,7 @@ checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 
 [[package]]
 name = "lecoo-control-center"
-version = "0.5.1-beta"
+version = "0.5.2-beta"
 dependencies = [
  "ipc",
  "slint",
@@ -2693,11 +2695,12 @@ dependencies = [
 
 [[package]]
 name = "lecoo-ctrl"
-version = "0.5.1-beta"
+version = "0.5.2-beta"
 dependencies = [
  "anyhow",
  "ctrlc",
  "ipc",
+ "lecoo-types",
  "lexopt",
  "rust-i18n",
  "strsim",
@@ -2706,20 +2709,29 @@ dependencies = [
 
 [[package]]
 name = "lecoo-ec-daemon"
-version = "0.5.1-beta"
+version = "0.5.2-beta"
 dependencies = [
  "anyhow",
- "bincode",
  "file-rotate",
  "ipc",
+ "lecoo-types",
  "libloading 0.9.0",
  "log",
+ "serde_json",
  "simplelog",
  "systemd-journal-logger",
  "ureq",
  "windows-service",
  "winreg",
  "zbus",
+]
+
+[[package]]
+name = "lecoo-types"
+version = "0.5.2-beta"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4968,12 +4980,13 @@ dependencies = [
 
 [[package]]
 name = "telemetry_server"
-version = "0.5.1-beta"
+version = "0.5.2-beta"
 dependencies = [
  "bincode",
- "ipc",
  "log",
  "rusqlite",
+ "serde",
+ "serde_json",
  "simplelog",
  "tiny_http",
 ]

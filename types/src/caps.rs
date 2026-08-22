@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::ec_types::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub struct ChargeCaps {
@@ -20,16 +20,30 @@ pub struct ChargeCaps {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct FanCaps { pub index: FanIndex, pub duty_max: u8 }
+pub struct FanCaps {
+    pub index: FanIndex,
+    pub duty_max: u8,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
-pub struct KbdCaps { pub on_off: bool, pub levels: bool, pub custom: bool }
+pub struct KbdCaps {
+    pub on_off: bool,
+    pub levels: bool,
+    pub custom: bool,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
-pub struct LedCaps { pub on_off: bool, pub brightness: bool, pub animation: bool }
+pub struct LedCaps {
+    pub on_off: bool,
+    pub brightness: bool,
+    pub animation: bool,
+}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum SensorRole { Cpu, Sys }
+pub enum SensorRole {
+    Cpu,
+    Sys,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Capabilities {

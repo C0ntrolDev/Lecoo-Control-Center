@@ -1,16 +1,16 @@
 //! Interactive hardware feature tester.
 
-use std::io::{self, Write};
 use std::fmt;
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 use anyhow::Result;
 use ipc::{DaemonCommand, IpcClient, IpcRequest, IpcResponse};
-use lecoo_types::settings::CurrentSettings;
 use lecoo_types::caps::FanCaps;
 use lecoo_types::ec_types::{FanIndex, FanMode, KeyboardBacklightLevel, PowerLedMode, PowerProfile};
+use lecoo_types::settings::CurrentSettings;
 
 use crate::help;
 
@@ -73,9 +73,7 @@ pub fn run(client: &mut IpcClient) -> Result<()> {
         other => anyhow::bail!("unexpected GetCapabilities response: {other:?}"),
     };
 
-    let saved = match client.request(
-        &IpcRequest::DaemonCommand(DaemonCommand::GetSettings),
-    )? {
+    let saved = match client.request(&IpcRequest::DaemonCommand(DaemonCommand::GetSettings))? {
         IpcResponse::Settings(s) => s,
         _ => anyhow::bail!("failed to read current daemon settings"),
     };
@@ -83,10 +81,7 @@ pub fn run(client: &mut IpcClient) -> Result<()> {
     install_signal_handler();
 
     println!();
-    println!(
-        "{}Hardware Test — Board: {}{}",
-        help::bold(), caps.board, help::reset()
-    );
+    println!("{}Hardware Test — Board: {}{}", help::bold(), caps.board, help::reset());
     println!("Each feature will be demonstrated — watch/listen for changes.");
     #[rustfmt::skip]
     println!(
@@ -167,18 +162,26 @@ fn test_kbd(client: &mut IpcClient) -> Result<Option<CategoryResult>> {
 
     for _ in 0..4 {
         for &(level, name) in &levels {
-            if is_interrupted() { break; }
+            if is_interrupted() {
+                break;
+            }
             set_quiet(client, &IpcRequest::SetKeyboardBacklight(level));
             print!("\r    cycling: {}{:<8}{}", help::bold(), name, help::reset());
             let _ = io::stdout().flush();
-            if interruptible_sleep(Duration::from_millis(300)) { break; }
+            if interruptible_sleep(Duration::from_millis(300)) {
+                break;
+            }
         }
-        if is_interrupted() { break; }
+        if is_interrupted() {
+            break;
+        }
     }
     print!("\r    cycling: done        ");
     println!();
 
-    if is_interrupted() { return Ok(None); }
+    if is_interrupted() {
+        return Ok(None);
+    }
 
     let overall = match ask_verdict("    Did the backlight change?")? {
         Some(v) => v,
@@ -192,7 +195,9 @@ fn test_kbd(client: &mut IpcClient) -> Result<Option<CategoryResult>> {
         println!("    Testing individual levels:");
         for &(level, name) in &levels {
             set_quiet(client, &IpcRequest::SetKeyboardBacklight(level));
-            if interruptible_sleep(Duration::from_millis(500)) { return Ok(None); }
+            if interruptible_sleep(Duration::from_millis(500)) {
+                return Ok(None);
+            }
             match ask_verdict(&format!("      → {name}:"))? {
                 Some(v) => details.push((name.to_owned(), v)),
                 None => return Ok(None),
@@ -240,18 +245,24 @@ fn test_led(client: &mut IpcClient) -> Result<Option<CategoryResult>> {
 
     let steps: &[u8] = &[0, 80, 160, 255, 160, 80, 0, 255];
     for &val in steps {
-        if is_interrupted() { break; }
+        if is_interrupted() {
+            break;
+        }
         set_quiet(client, &IpcRequest::SetLedMode(PowerLedMode::Custom(val)));
         print!("\r    brightness: {}{:<5}{}", help::bold(), val, help::reset());
         let _ = io::stdout().flush();
-        if interruptible_sleep(Duration::from_millis(400)) { break; }
+        if interruptible_sleep(Duration::from_millis(400)) {
+            break;
+        }
     }
     print!("\r    cycling: done         ");
     println!();
 
     set_quiet(client, &IpcRequest::SetLedMode(PowerLedMode::Auto));
 
-    if is_interrupted() { return Ok(None); }
+    if is_interrupted() {
+        return Ok(None);
+    }
 
     let overall = match ask_verdict("    Did the LED change?")? {
         Some(v) => v,
@@ -264,15 +275,14 @@ fn test_led(client: &mut IpcClient) -> Result<Option<CategoryResult>> {
 
 /// Programmatic verification — set each profile, read back, compare.
 /// No user interaction needed since profile changes aren't directly observable.
-fn test_power(
-    client: &mut IpcClient,
-    profiles: &[PowerProfile],
-) -> Result<Option<CategoryResult>> {
+fn test_power(client: &mut IpcClient, profiles: &[PowerProfile]) -> Result<Option<CategoryResult>> {
     println!("  {}▶ Power Profiles (auto-verify){}", help::bold(), help::reset());
 
     let mut details = Vec::new();
     for &p in profiles {
-        if is_interrupted() { return Ok(None); }
+        if is_interrupted() {
+            return Ok(None);
+        }
 
         let name = format!("{p:?}").to_lowercase();
         set_quiet(client, &IpcRequest::SetPowerProfile(p));
@@ -310,7 +320,9 @@ fn spin_down(client: &mut IpcClient, fans: &[FanCaps]) {
 }
 
 fn ask_verdict(prompt: &str) -> Result<Option<Verdict>> {
-    if is_interrupted() { return Ok(None); }
+    if is_interrupted() {
+        return Ok(None);
+    }
 
     print!("{} [y/n/?/q] ", prompt);
     io::stdout().flush()?;
@@ -323,7 +335,9 @@ fn ask_verdict(prompt: &str) -> Result<Option<Verdict>> {
             Ok(_) => {}
         }
 
-        if is_interrupted() { return Ok(None); }
+        if is_interrupted() {
+            return Ok(None);
+        }
 
         match buf.trim().to_lowercase().as_str() {
             "y" | "yes" => return Ok(Some(Verdict::Yes)),
@@ -339,21 +353,11 @@ fn ask_verdict(prompt: &str) -> Result<Option<Verdict>> {
 }
 
 fn restore_settings(client: &mut IpcClient, s: &CurrentSettings) {
-    let _ = client.request(
-        &IpcRequest::SetKeyboardBacklight(s.keyboard_backlight),
-    );
-    let _ = client.request(
-        &IpcRequest::SetFanMode { fan: FanIndex::Cpu, mode: s.fan_mode_cpu },
-    );
-    let _ = client.request(
-        &IpcRequest::SetFanMode { fan: FanIndex::Gpu, mode: s.fan_mode_gpu },
-    );
-    let _ = client.request(
-        &IpcRequest::SetPowerProfile(s.power_profile),
-    );
-    let _ = client.request(
-        &IpcRequest::SetLedMode(s.led_mode),
-    );
+    let _ = client.request(&IpcRequest::SetKeyboardBacklight(s.keyboard_backlight));
+    let _ = client.request(&IpcRequest::SetFanMode { fan: FanIndex::Cpu, mode: s.fan_mode_cpu });
+    let _ = client.request(&IpcRequest::SetFanMode { fan: FanIndex::Gpu, mode: s.fan_mode_gpu });
+    let _ = client.request(&IpcRequest::SetPowerProfile(s.power_profile));
+    let _ = client.request(&IpcRequest::SetLedMode(s.led_mode));
     println!();
     println!("{}Settings restored.{}", help::bold(), help::reset());
 }
@@ -366,9 +370,7 @@ fn print_report(results: &[CategoryResult]) {
         if r.details.is_empty() {
             println!("  {} {}", r.overall, r.name);
         } else {
-            let parts: Vec<String> = r.details.iter()
-                .map(|(name, v)| format!("{name}: {v}"))
-                .collect();
+            let parts: Vec<String> = r.details.iter().map(|(name, v)| format!("{name}: {v}")).collect();
             println!("  {} {}  ({})", r.overall, r.name, parts.join(", "));
         }
     }
@@ -381,8 +383,14 @@ fn print_report(results: &[CategoryResult]) {
     println!(
         "  {} tested: {}✓ {}{} / {}✗ {}{} / {}? {}{}",
         results.len(),
-        help::bold(), passed, help::reset(),
-        help::bold(), failed, help::reset(),
-        help::bold(), unsure, help::reset(),
+        help::bold(),
+        passed,
+        help::reset(),
+        help::bold(),
+        failed,
+        help::reset(),
+        help::bold(),
+        unsure,
+        help::reset(),
     );
 }

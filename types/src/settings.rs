@@ -1,8 +1,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use serde::{Deserialize, Serialize};
 use crate::ec_types::*;
-
+use serde::{Deserialize, Serialize};
 
 /// Current configuration settings of the system
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

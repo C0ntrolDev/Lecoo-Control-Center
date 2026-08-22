@@ -1,7 +1,8 @@
-pub mod ec_types;
 pub mod caps;
+pub mod ec_types;
 pub mod settings;
 pub mod telemetry;
+
 
 /// `u64` <-> `"0x0123456789ABCDEF"`.
 pub mod hex_u64 {

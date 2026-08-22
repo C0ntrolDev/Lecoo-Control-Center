@@ -2,14 +2,12 @@ use super::*;
 use std::collections::HashSet;
 
 /// Documented address overlaps that are not yet resolved on hardware.
-const KNOWN_CONFLICTS: &[(&str, &str, &str)] = &[
-    ("N155D", "fan.Cpu.policy", "led.bypass"),
-];
+const KNOWN_CONFLICTS: &[(&str, &str, &str)] = &[("N155D", "fan.Cpu.policy", "led.bypass")];
 
 fn is_known(board: &str, a: &str, b: &str) -> bool {
-    KNOWN_CONFLICTS.iter().any(|(bd, x, y)| {
-        *bd == board && ((*x == a && *y == b) || (*x == b && *y == a))
-    })
+    KNOWN_CONFLICTS
+        .iter()
+        .any(|(bd, x, y)| *bd == board && ((*x == a && *y == b) || (*x == b && *y == a)))
 }
 
 #[test]
@@ -20,11 +18,12 @@ fn ids_and_dmi_patterns_do_not_shadow() {
     }
     for a in PROFILES {
         for b in PROFILES {
-            if a.id == b.id { continue; }
+            if a.id == b.id {
+                continue;
+            }
             for pa in a.dmi {
                 for pb in b.dmi {
-                    assert!(!pa.contains(pb),
-                        "DMI pattern {pa} ({}) shadows {pb} ({})", a.id, b.id);
+                    assert!(!pa.contains(pb), "DMI pattern {pa} ({}) shadows {pb} ({})", a.id, b.id);
                 }
             }
         }

@@ -1,7 +1,7 @@
-use anyhow::{Context, Result, bail};
-use lecoo_types::ec_types::{ChargeIntent, ChargeRange};
 use super::EcDevice;
 use crate::ec::{Addr, ChargeOps};
+use anyhow::{Context, Result, bail};
+use lecoo_types::ec_types::{ChargeIntent, ChargeRange};
 
 pub enum Availability {
     Ready,
@@ -19,13 +19,9 @@ pub fn charge_availability(ec: &EcDevice, intent: &ChargeIntent) -> Result<Avail
 
     match ec.profile.charge {
         ChargeOps::None => {
-            Ok(Availability::Unsupported(
-                format!("Board {} has no charge control", ec.profile.id)
-            ))
+            Ok(Availability::Unsupported(format!("Board {} has no charge control", ec.profile.id)))
         }
-        ChargeOps::FlexiCharger { .. } => {
-            Ok(Availability::Ready)
-        }
+        ChargeOps::FlexiCharger { .. } => Ok(Availability::Ready),
         ChargeOps::PolicyByte { arm_below, freeze_soc, .. } => {
             policy_byte::availability(ec, intent, arm_below, freeze_soc)
         }
@@ -40,34 +36,25 @@ pub fn apply_charge(ec: &EcDevice, intent: &ChargeIntent) -> Result<()> {
         ChargeOps::None => {
             bail!("Board {} has no charge control", ec.profile.id)
         }
-        ChargeOps::FlexiCharger { min, max, full_max, .. } => {
-            flexi::apply(ec, intent, min, max, full_max)
-        }
-        ChargeOps::PolicyByte { reg, .. } => {
-            policy_byte::apply(ec, intent, reg)
-        }
+        ChargeOps::FlexiCharger { min, max, full_max, .. } => flexi::apply(ec, intent, min, max, full_max),
+        ChargeOps::PolicyByte { reg, .. } => policy_byte::apply(ec, intent, reg),
     }
 }
 
 /// What the hardware is doing right now. Source of truth for `charge status`.
 pub fn effective_charge(ec: &EcDevice) -> Result<(ChargeIntent, Option<(u8, u8)>)> {
     match ec.profile.charge {
-        ChargeOps::None => {
-            Ok((ChargeIntent::Full, None))
-        }
-        ChargeOps::FlexiCharger { min, max, full_max, .. } => {
-            flexi::effective(ec, min, max, full_max)
-        }
-        ChargeOps::PolicyByte { reg, fw_thresholds, .. } => {
-            policy_byte::effective(ec, reg, fw_thresholds)
-        }
+        ChargeOps::None => Ok((ChargeIntent::Full, None)),
+        ChargeOps::FlexiCharger { min, max, full_max, .. } => flexi::effective(ec, min, max, full_max),
+        ChargeOps::PolicyByte { reg, fw_thresholds, .. } => policy_byte::effective(ec, reg, fw_thresholds),
     }
 }
 
 fn unsupported_reason(ec: &EcDevice, intent: &ChargeIntent) -> String {
     match (ec.profile.charge, intent) {
         (ChargeOps::PolicyByte { fw_thresholds, .. }, ChargeIntent::Preserve(Some(_))) => {
-            format!("{} cannot take a custom range: firmware owns the thresholds (~{}-{}%). Use the `lifespan` preset.",
+            format!(
+                "{} cannot take a custom range: firmware owns the thresholds (~{}-{}%). Use the `lifespan` preset.",
                 ec.profile.id, fw_thresholds.0, fw_thresholds.1
             )
         }
@@ -86,17 +73,14 @@ fn unsupported_reason(ec: &EcDevice, intent: &ChargeIntent) -> String {
 // ---------- shared helpers ----------
 
 pub fn read_battery_rsoc(ec: &EcDevice) -> Result<u8> {
-    let bat = ec.profile.battery
-        .context("Board has no battery spec")?;
+    let bat = ec.profile.battery.context("Board has no battery spec")?;
     ec.read(bat.rsoc)
 }
 
 /// Kept for IpcResponse::ChargeLimit and the battery LED logic.
 pub fn read_charge_limit(ec: &EcDevice) -> Result<(u8, u8)> {
     match ec.profile.charge {
-        ChargeOps::FlexiCharger { min, max, .. } => {
-            ec.with_batch(|b| Ok((b.read(min)?, b.read(max)?)))
-        }
+        ChargeOps::FlexiCharger { min, max, .. } => ec.with_batch(|b| Ok((b.read(min)?, b.read(max)?))),
 
         ChargeOps::PolicyByte { reg, fw_thresholds, .. } => {
             let (intent, _) = policy_byte::effective(ec, reg, fw_thresholds)?;
@@ -151,9 +135,7 @@ pub fn reconcile(ec: &EcDevice, desired: &ChargeIntent) -> Result<Option<String>
 mod flexi {
     use super::*;
 
-    pub fn apply(ec: &EcDevice, intent: &ChargeIntent, min: Addr, max: Addr, full_max: u8)
-        -> Result<()>
-    {
+    pub fn apply(ec: &EcDevice, intent: &ChargeIntent, min: Addr, max: Addr, full_max: u8) -> Result<()> {
         let (lo, hi) = match intent {
             ChargeIntent::Full => (0, full_max),
             ChargeIntent::Preserve(Some(r)) => (r.min, r.max),
@@ -173,9 +155,12 @@ mod flexi {
         Ok(())
     }
 
-    pub fn effective(ec: &EcDevice, min: Addr, max: Addr, full_max: u8)
-        -> Result<(ChargeIntent, Option<(u8, u8)>)>
-    {
+    pub fn effective(
+        ec: &EcDevice,
+        min: Addr,
+        max: Addr,
+        full_max: u8,
+    ) -> Result<(ChargeIntent, Option<(u8, u8)>)> {
         let (lo, hi) = ec.with_batch(|b| Ok((b.read(min)?, b.read(max)?)))?;
         let intent = if hi == full_max || (full_max == 100 && hi >= 100) || (lo == 0 && hi == 0) {
             ChargeIntent::Full
@@ -195,12 +180,12 @@ mod policy_byte {
 
     const BIT_ENABLE: u8 = 0x01;
     const BIT_POLICY: u8 = 0x02;
-    const BIT_LATCH:  u8 = 0x04;
+    const BIT_LATCH: u8 = 0x04;
     const OWNED_MASK: u8 = BIT_ENABLE | BIT_POLICY | BIT_LATCH;
 
-    const V_FULL:     u8 = 0x00;
+    const V_FULL: u8 = 0x00;
     const V_PRESERVE: u8 = BIT_ENABLE | BIT_POLICY;
-    const V_FREEZE:   u8 = BIT_ENABLE | BIT_POLICY | BIT_LATCH;
+    const V_FREEZE: u8 = BIT_ENABLE | BIT_POLICY | BIT_LATCH;
 
     pub fn availability(
         ec: &EcDevice,
@@ -220,8 +205,12 @@ mod policy_byte {
                 } else {
                     match super::is_charging(ec) {
                         Some(true) => Availability::Ready,
-                        Some(false) => Availability::Blocked("Requires active charging: connect the AC adapter".into()),
-                        None => Availability::Blocked("Cannot confirm active charging: profile has no charge-current address".into()),
+                        Some(false) => {
+                            Availability::Blocked("Requires active charging: connect the AC adapter".into())
+                        }
+                        None => Availability::Blocked(
+                            "Cannot confirm active charging: profile has no charge-current address".into(),
+                        ),
                     }
                 }
             }
@@ -232,7 +221,8 @@ mod policy_byte {
                 } else {
                     Availability::Blocked(format!(
                         "Hold works between {}% and {}% (now {soc}%)",
-                        freeze_soc.0, freeze_soc.1))
+                        freeze_soc.0, freeze_soc.1
+                    ))
                 }
             }
 
@@ -254,15 +244,12 @@ mod policy_byte {
 
         let after = ec.update_bits(reg, OWNED_MASK, want)?;
         if after & OWNED_MASK != want {
-            bail!("Policy byte read-back mismatch: wanted {:#04X}, got {:#04X}",
-                  want, after & OWNED_MASK);
+            bail!("Policy byte read-back mismatch: wanted {:#04X}, got {:#04X}", want, after & OWNED_MASK);
         }
         Ok(())
     }
 
-    pub fn effective(ec: &EcDevice, reg: Addr, fw: (u8, u8))
-        -> Result<(ChargeIntent, Option<(u8, u8)>)>
-    {
+    pub fn effective(ec: &EcDevice, reg: Addr, fw: (u8, u8)) -> Result<(ChargeIntent, Option<(u8, u8)>)> {
         Ok(match ec.read(reg)? & OWNED_MASK {
             V_FREEZE => (ChargeIntent::Freeze, None),
             V_PRESERVE => (ChargeIntent::Preserve(None), Some(fw)),

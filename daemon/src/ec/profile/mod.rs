@@ -1,4 +1,7 @@
-use lecoo_types::{caps::SensorRole, ec_types::{ChargeIntent, FanIndex, PowerProfile}};
+use lecoo_types::{
+    caps::SensorRole,
+    ec_types::{ChargeIntent, FanIndex, PowerProfile},
+};
 
 mod boards;
 mod caps;
@@ -19,7 +22,9 @@ pub enum Addr {
 
 impl Addr {
     pub fn raw(self) -> u16 {
-        match self { Addr::Reg(x) | Addr::Ram(x) | Addr::Banked(x) => x }
+        match self {
+            Addr::Reg(x) | Addr::Ram(x) | Addr::Banked(x) => x,
+        }
     }
 }
 
@@ -49,7 +54,10 @@ pub struct FanSpec {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct SensorSpec { pub role: SensorRole, pub addr: Addr }
+pub struct SensorSpec {
+    pub role: SensorRole,
+    pub addr: Addr,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct PowerSpec {
@@ -79,8 +87,15 @@ pub struct PwmSpec {
 #[derive(Debug, Clone, Copy)]
 pub enum LedOps {
     None,
-    Pwm { pwm: PwmSpec },
-    PwmBreath { pwm: PwmSpec, breath_en: Addr, breath_step: Addr, breath_delay: Addr },
+    Pwm {
+        pwm: PwmSpec,
+    },
+    PwmBreath {
+        pwm: PwmSpec,
+        breath_en: Addr,
+        breath_step: Addr,
+        breath_delay: Addr,
+    },
 }
 
 /// Separate slot from LedOps: if these masks are not indicator LEDs on some
@@ -96,8 +111,15 @@ pub struct BatteryLedsSpec {
 #[derive(Debug, Clone, Copy)]
 pub enum KbdOps {
     None,
-    Levels { reg: Addr, custom_val: Addr, bypass_timeout: Addr, mux: Addr },
-    PwmDuty { reg: Addr },
+    Levels {
+        reg: Addr,
+        custom_val: Addr,
+        bypass_timeout: Addr,
+        mux: Addr,
+    },
+    PwmDuty {
+        reg: Addr,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -124,7 +146,10 @@ pub enum ChargeOps {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct PresetSpec { pub name: &'static str, pub intent: ChargeIntent }
+pub struct PresetSpec {
+    pub name: &'static str,
+    pub intent: ChargeIntent,
+}
 
 // ---------- static board facts ----------
 
@@ -170,10 +195,14 @@ impl BoardProfile {
         for s in self.sensors {
             v.push((format!("sensor.{:?}", s.role), s.addr));
         }
-        if let Some(p) = self.power { v.push(("power.reg".into(), p.reg)); }
+        if let Some(p) = self.power {
+            v.push(("power.reg".into(), p.reg));
+        }
         if let Some(b) = self.battery {
             v.push(("bat.rsoc".into(), b.rsoc));
-            if let Some(a) = b.charge_current { v.push(("bat.current".into(), a)); }
+            if let Some(a) = b.charge_current {
+                v.push(("bat.current".into(), a));
+            }
         }
         match self.kbd {
             KbdOps::None => {}
@@ -203,7 +232,9 @@ impl BoardProfile {
                 v.push(("led.breath_delay".into(), breath_delay));
             }
         }
-        if let Some(b) = self.battery_leds { v.push(("bat_leds.port".into(), b.port)); }
+        if let Some(b) = self.battery_leds {
+            v.push(("bat_leds.port".into(), b.port));
+        }
         match self.charge {
             ChargeOps::None => {}
             ChargeOps::FlexiCharger { min, max, .. } => {

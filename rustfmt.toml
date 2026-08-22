@@ -1,0 +1,15 @@
+# Wider than the 100 default: p99 of this repo is 107 columns, so width alone
+# stops being a source of churn in the EC register tables and in log/error lines.
+max_width = 110
+
+# Widths are set one by one instead of use_small_heuristics = "Max". "Max" would
+# also collapse multi-field struct literals onto a single line, which is exactly
+# what the board profile tables must not do: there a field per line is the point.
+fn_call_width = 100
+struct_lit_width = 70
+array_width = 100
+chain_width = 85
+single_line_if_else_max_width = 100
+
+style_edition = "2024"
+newline_style = "Unix"

@@ -1,9 +1,9 @@
+use super::InternalEvent;
+use lecoo_types::telemetry::HostInfo;
 use std::fs;
 use std::sync::mpsc::Sender;
 use std::thread;
-use lecoo_types::telemetry::HostInfo;
 use zbus::blocking::Connection;
-use super::InternalEvent;
 
 pub fn init_logger() {
     use log::LevelFilter;
@@ -87,7 +87,10 @@ pub fn run_as_service(tx: Sender<InternalEvent>) -> zbus::Result<()> {
         .spawn(move || {
             let manager = match SystemdManagerProxyBlocking::new(&conn_systemd) {
                 Ok(m) => m,
-                Err(e) => { log::error!("systemd proxy error: {e}"); return; }
+                Err(e) => {
+                    log::error!("systemd proxy error: {e}");
+                    return;
+                }
             };
 
             if let Err(e) = manager.subscribe() {
@@ -97,18 +100,26 @@ pub fn run_as_service(tx: Sender<InternalEvent>) -> zbus::Result<()> {
 
             let signals = match manager.receive_job_new() {
                 Ok(s) => s,
-                Err(e) => { log::error!("job_new subscribe error: {e}"); return; }
+                Err(e) => {
+                    log::error!("job_new subscribe error: {e}");
+                    return;
+                }
             };
 
             for sig in signals {
                 let Ok(args) = sig.args() else { continue };
 
                 let is_sleep_unit = match args.unit.as_str() {
-                    "suspend.target" | "hibernate.target" | "hybrid-sleep.target" | "suspend-then-hibernate.target" => true,
+                    "suspend.target"
+                    | "hibernate.target"
+                    | "hybrid-sleep.target"
+                    | "suspend-then-hibernate.target" => true,
                     _ => false,
                 };
 
-                if !is_sleep_unit { continue; }
+                if !is_sleep_unit {
+                    continue;
+                }
 
                 if let Ok(job_proxy) = SystemdJobProxyBlocking::builder(&conn_systemd)
                     .path(args.job.clone())
@@ -144,11 +155,17 @@ pub fn run_as_service(tx: Sender<InternalEvent>) -> zbus::Result<()> {
         .spawn(move || {
             let proxy = match LoginManagerProxyBlocking::new(&conn_sleep) {
                 Ok(p) => p,
-                Err(e) => { log::error!("sleep proxy: {e}"); return; }
+                Err(e) => {
+                    log::error!("sleep proxy: {e}");
+                    return;
+                }
             };
             let signals = match proxy.receive_prepare_for_sleep() {
                 Ok(s) => s,
-                Err(e) => { log::error!("sleep subscribe: {e}"); return; }
+                Err(e) => {
+                    log::error!("sleep subscribe: {e}");
+                    return;
+                }
             };
 
             for sig in signals {
@@ -171,7 +188,10 @@ pub fn run_as_service(tx: Sender<InternalEvent>) -> zbus::Result<()> {
         .spawn(move || {
             let proxy = match UPowerProxyBlocking::new(&conn_power) {
                 Ok(p) => p,
-                Err(e) => { log::error!("upower proxy error: {e}"); return; }
+                Err(e) => {
+                    log::error!("upower proxy error: {e}");
+                    return;
+                }
             };
 
             let changed_stream = proxy.receive_on_battery_changed();

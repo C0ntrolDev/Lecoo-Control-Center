@@ -10,7 +10,6 @@ pub enum PowerLedMode {
     Animation(BreathConfig),
 }
 
-
 /// Represents breathing animation brightness levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BreathBrightness {
@@ -32,13 +31,13 @@ pub enum BreathStep {
 /// Represents breathing animation delay durations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BreathDelay {
-    Ms15 = 0x00,        // ~15.6 ms
-    Ms125 = 0x01,       // ~125 ms
-    Ms250 = 0x02,       // ~250 ms
-    Sec0_5 = 0x03,      // 0.5 sec
-    Sec1 = 0x04,        // 1.0 sec
-    Sec2 = 0x05,        // 2.0 sec
-    Sec4 = 0x06,        // 4.0 sec
+    Ms15 = 0x00,   // ~15.6 ms
+    Ms125 = 0x01,  // ~125 ms
+    Ms250 = 0x02,  // ~250 ms
+    Sec0_5 = 0x03, // 0.5 sec
+    Sec1 = 0x04,   // 1.0 sec
+    Sec2 = 0x05,   // 2.0 sec
+    Sec4 = 0x06,   // 4.0 sec
 }
 
 /// Represents breathing animation configuration
@@ -155,8 +154,8 @@ impl BreathConfig {
             max_brightness: BreathBrightness::Max100Percent,
             step_up: BreathStep::Instant,
             step_down: BreathStep::Instant,
-            delay_at_max: BreathDelay::Ms15,  // Minimum hardware delay
-            delay_at_min: BreathDelay::Ms15,  // Minimum hardware delay
+            delay_at_max: BreathDelay::Ms15, // Minimum hardware delay
+            delay_at_min: BreathDelay::Ms15, // Minimum hardware delay
         }
     }
 

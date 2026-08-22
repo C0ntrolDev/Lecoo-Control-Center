@@ -1,9 +1,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{Result, bail};
-use lecoo_types::ec_types::{BreathConfig, PowerLedMode};
 use super::EcDevice;
 use crate::ec::{Addr, LedOps, PwmSpec};
+use anyhow::{Result, bail};
+use lecoo_types::ec_types::{BreathConfig, PowerLedMode};
 
 static IS_LED_ALREADY_CUSTOM: AtomicBool = AtomicBool::new(false);
 
@@ -14,8 +14,7 @@ pub fn apply_led_mode(ec: &EcDevice, mode: &PowerLedMode) -> Result<()> {
         LedOps::Pwm { pwm } => match mode {
             PowerLedMode::Auto => set_auto(ec, pwm, None),
             PowerLedMode::Custom(brightness) => set_custom(ec, pwm, None, *brightness),
-            PowerLedMode::Animation(_) =>
-                bail!("Board {} has no hardware LED animation", ec.profile.id),
+            PowerLedMode::Animation(_) => bail!("Board {} has no hardware LED animation", ec.profile.id),
         },
 
         LedOps::PwmBreath { pwm, breath_en, breath_step, breath_delay } => match mode {
@@ -38,7 +37,9 @@ pub fn apply_led_mode(ec: &EcDevice, mode: &PowerLedMode) -> Result<()> {
 }
 
 pub fn apply_battery_leds(ec: &EcDevice, orange_on: bool, white_on: bool) -> Result<()> {
-    let Some(spec) = ec.profile.battery_leds else { return Ok(()) };
+    let Some(spec) = ec.profile.battery_leds else {
+        return Ok(());
+    };
 
     let mut port = ec.read(spec.port)?;
     let set = |on: bool, mask: u8, port: &mut u8| {
@@ -55,9 +56,7 @@ pub fn apply_battery_leds(ec: &EcDevice, orange_on: bool, white_on: bool) -> Res
 /// Creates the value for the breath_step register (LCR1)
 #[inline]
 pub fn breath_step_register(c: &BreathConfig) -> u8 {
-    ((c.max_brightness as u8) << 4)
-        | ((c.step_down as u8) << 2)
-        | (c.step_up as u8)
+    ((c.max_brightness as u8) << 4) | ((c.step_down as u8) << 2) | (c.step_up as u8)
 }
 
 /// Creates the value for the breath_delay register (LCR2)
@@ -65,7 +64,6 @@ pub fn breath_step_register(c: &BreathConfig) -> u8 {
 pub fn breath_delay_register(c: &BreathConfig) -> u8 {
     ((c.delay_at_max as u8) << 4) | (c.delay_at_min as u8)
 }
-
 
 #[inline]
 fn enter_custom(ec: &EcDevice, pwm: PwmSpec) -> Result<()> {

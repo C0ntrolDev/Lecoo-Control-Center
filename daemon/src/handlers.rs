@@ -1,7 +1,10 @@
+use crate::{
+    ec::{self, EcDevice},
+    telemetry,
+};
 use anyhow::{Context, Result, anyhow, bail};
 use ipc::{DaemonCommand, ErrorCode, IpcError, IpcRequest, IpcResponse, SystemInfo};
 use lecoo_types::{caps::ChargeStatus, ec_types::*, settings::CurrentSettings};
-use crate::{ec::{self, EcDevice}, telemetry};
 
 #[cfg(windows)]
 const STATE_PATH: &str = "C:\\ProgramData\\LecooControl\\daemon_state.bin";
@@ -36,7 +39,9 @@ impl DaemonState for CurrentSettings {
     }
 
     fn load_or_default() -> Self {
-        Self::load().map_err(|err| log::error!("Load state error: {}", err)).unwrap_or_default()
+        Self::load()
+            .map_err(|err| log::error!("Load state error: {}", err))
+            .unwrap_or_default()
     }
 
     fn restore_state(&self, ec: &EcDevice) -> Result<()> {
@@ -58,10 +63,7 @@ impl DaemonState for CurrentSettings {
         if ec.profile.power.is_some() {
             step("power", ec::apply_power_profile(ec, &self.power_profile).map(|_| ()), &mut errors);
         }
-        for (index, mode) in [
-            (FanIndex::Cpu, &self.fan_mode_cpu),
-            (FanIndex::Gpu, &self.fan_mode_gpu),
-        ] {
+        for (index, mode) in [(FanIndex::Cpu, &self.fan_mode_cpu), (FanIndex::Gpu, &self.fan_mode_gpu)] {
             if ec.profile.fan(index).is_some() {
                 step("fan", ec::apply_fan_mode(ec, &index, mode), &mut errors);
             }
@@ -83,7 +85,7 @@ impl DaemonState for CurrentSettings {
 
 pub fn do_work(req: &IpcRequest) -> IpcResponse {
     if let Some(info) = crate::UNSUPPORTED.get() {
-        return IpcResponse::Error(IpcError::new(ErrorCode::UnsupportedHardware, "", Some(info.clone())))
+        return IpcResponse::Error(IpcError::new(ErrorCode::UnsupportedHardware, "", Some(info.clone())));
     }
     let ec = crate::EC.get().unwrap();
 
@@ -125,7 +127,7 @@ fn process_daemon_command(ec: &EcDevice, command: &DaemonCommand) -> Result<IpcR
             state.save()?;
             state.restore_state(ec)?;
             Ok(IpcResponse::Success)
-        },
+        }
 
         DaemonCommand::ActivateTelemetry(is_enabled) => {
             let mut state = get_state()?;
@@ -139,7 +141,7 @@ fn process_daemon_command(ec: &EcDevice, command: &DaemonCommand) -> Result<IpcR
                 telemetry::disable();
                 Ok(IpcResponse::TelemetryDisabledInfo)
             }
-        },
+        }
 
         DaemonCommand::ApplySettings => {
             let state = get_state()?;
@@ -149,14 +151,15 @@ fn process_daemon_command(ec: &EcDevice, command: &DaemonCommand) -> Result<IpcR
 
         DaemonCommand::GetSettings => Ok(IpcResponse::Settings(Box::new(get_state()?.clone()))),
         DaemonCommand::GetTelemetryId => Ok(IpcResponse::TelemetryId(get_state()?.telemetry_client_id)),
-        DaemonCommand::GetCapabilities => Ok(IpcResponse::Capabilities(Box::new(ec.profile.caps(crate::VERSION)))),
+        DaemonCommand::GetCapabilities => {
+            Ok(IpcResponse::Capabilities(Box::new(ec.profile.caps(crate::VERSION))))
+        }
 
-        _ => todo!()
+        _ => todo!(),
     }
 }
 
 // Getters
-
 
 fn get_charge_status(ec: &EcDevice) -> Result<IpcResponse> {
     let desired = get_state()?.charge;
@@ -182,7 +185,9 @@ fn get_charge_status(ec: &EcDevice) -> Result<IpcResponse> {
 
 fn set_charge_intent(ec: &EcDevice, intent: &ChargeIntent) -> Result<IpcResponse> {
     match ec::charge_availability(ec, intent)? {
-        ec::Availability::Unsupported(reason) => return Ok(IpcResponse::Error(IpcError::new(ErrorCode::UnsupportedHardware, reason, None))),
+        ec::Availability::Unsupported(reason) => {
+            return Ok(IpcResponse::Error(IpcError::new(ErrorCode::UnsupportedHardware, reason, None)));
+        }
         ec::Availability::Blocked(reason) => {
             get_state()?.charge = *intent;
             let _ = get_state()?.save();

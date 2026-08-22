@@ -13,14 +13,15 @@
 //! a completely dynamic `--help` output that actually matches the user's hardware.
 
 use lecoo_types::caps::Capabilities;
-use lecoo_types::ec_types::{ChargeIntent, ChargeRange, FanMode, KeyboardBacklightLevel, PowerLedMode, PowerProfile};
+use lecoo_types::ec_types::{
+    ChargeIntent, ChargeRange, FanMode, KeyboardBacklightLevel, PowerLedMode, PowerProfile,
+};
 use lexopt::prelude::*;
 use rust_i18n::t;
 
-
 use crate::defs::{
-    parse_fan_mode, parse_fan_target, parse_kbd_level, parse_led_mode, parse_power_profile,
-    parse_u8_arg, require_arg, FanTarget, ParseError,
+    FanTarget, ParseError, parse_fan_mode, parse_fan_target, parse_kbd_level, parse_led_mode,
+    parse_power_profile, parse_u8_arg, require_arg,
 };
 
 #[derive(Debug, Clone)]
@@ -51,8 +52,6 @@ pub enum CliCommand {
     Version,
 }
 
-
-
 macro_rules! parse_bail {
     ($cmd:expr, $($arg:tt)*) => {
         return Err(ParseError {
@@ -72,20 +71,19 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
     let mut rate_val: Option<f32> = None;
     let mut wants_help = false;
 
-    while let Some(arg) = parser.next().map_err(|e| ParseError {
-        message: e.to_string(),
-        command: command_name.clone(),
-    })? {
+    while let Some(arg) = parser
+        .next()
+        .map_err(|e| ParseError { message: e.to_string(), command: command_name.clone() })?
+    {
         match arg {
             Short('h') | Long("help") => {
                 wants_help = true;
             }
             Short('v') | Long("version") => return Ok(CliCommand::Version),
             Long("min") => {
-                let val_str = parser.value().map_err(|e| ParseError {
-                    message: e.to_string(),
-                    command: command_name.clone(),
-                })?;
+                let val_str = parser
+                    .value()
+                    .map_err(|e| ParseError { message: e.to_string(), command: command_name.clone() })?;
                 let v: u8 = val_str.parse().map_err(|_| ParseError {
                     message: "Invalid value for --min".into(),
                     command: command_name.clone(),
@@ -93,10 +91,9 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
                 min_val = Some(v);
             }
             Long("max") => {
-                let val_str = parser.value().map_err(|e| ParseError {
-                    message: e.to_string(),
-                    command: command_name.clone(),
-                })?;
+                let val_str = parser
+                    .value()
+                    .map_err(|e| ParseError { message: e.to_string(), command: command_name.clone() })?;
                 let v: u8 = val_str.parse().map_err(|_| ParseError {
                     message: "Invalid value for --max".into(),
                     command: command_name.clone(),
@@ -104,10 +101,9 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
                 max_val = Some(v);
             }
             Long("rate") => {
-                let val_str = parser.value().map_err(|e| ParseError {
-                    message: e.to_string(),
-                    command: command_name.clone(),
-                })?;
+                let val_str = parser
+                    .value()
+                    .map_err(|e| ParseError { message: e.to_string(), command: command_name.clone() })?;
                 let v: f32 = val_str.parse().map_err(|_| ParseError {
                     message: "Invalid value for --rate".into(),
                     command: command_name.clone(),
@@ -133,15 +129,13 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
                 return Err(ParseError {
                     message: arg.unexpected().to_string(),
                     command: command_name.clone(),
-                })
+                });
             }
         }
     }
 
     if wants_help {
-        return Ok(CliCommand::Help {
-            target: command_name.or_else(|| args.first().cloned()),
-        });
+        return Ok(CliCommand::Help { target: command_name.or_else(|| args.first().cloned()) });
     }
 
     let Some(cmd) = command_name else {
@@ -195,7 +189,9 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
                 let preset_name = preset_str.to_lowercase();
 
                 if let Some(c) = caps {
-                    if let Some((_, intent)) = c.charge.presets.iter().find(|(name, _)| name.eq_ignore_ascii_case(&preset_name)) {
+                    if let Some((_, intent)) =
+                        c.charge.presets.iter().find(|(name, _)| name.eq_ignore_ascii_case(&preset_name))
+                    {
                         return Ok(CliCommand::Charge { intent: Some(*intent) });
                     }
                 }
@@ -207,7 +203,11 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
                     "lifespan" => ChargeIntent::Preserve(Some(ChargeRange { min: 55, max: 60 })),
                     "desk" => ChargeIntent::Preserve(Some(ChargeRange { min: 40, max: 50 })),
                     "hold" | "freeze" => ChargeIntent::Freeze,
-                    _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = preset_str, arg = "[PRESET]")),
+                    _ => parse_bail!(
+                        cmd_ctx,
+                        "{}",
+                        t!("err_invalid_value", val = preset_str, arg = "[PRESET]")
+                    ),
                 };
                 Ok(CliCommand::Charge { intent: Some(intent) })
             } else {
@@ -256,7 +256,11 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
                         "enable" => DaemonSubcommand::TelemetryEnable,
                         "disable" => DaemonSubcommand::TelemetryDisable,
                         "id" => DaemonSubcommand::TelemetryId,
-                        _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = action, arg = "<enable|disable|id>")),
+                        _ => parse_bail!(
+                            cmd_ctx,
+                            "{}",
+                            t!("err_invalid_value", val = action, arg = "<enable|disable|id>")
+                        ),
                     }
                 }
                 "settings" => {
@@ -268,7 +272,11 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
                         "reset" => DaemonSubcommand::SettingsReset,
                         "read" => DaemonSubcommand::SettingsRead,
                         "apply" => DaemonSubcommand::SettingsApply,
-                        _ => parse_bail!(cmd_ctx, "{}", t!("err_invalid_value", val = action, arg = "<reset|read|apply>")),
+                        _ => parse_bail!(
+                            cmd_ctx,
+                            "{}",
+                            t!("err_invalid_value", val = action, arg = "<reset|read|apply>")
+                        ),
                     }
                 }
                 _ => parse_bail!(cmd_ctx, "{}", t!("err_unrecognized_subcmd", cmd = sub)),
@@ -279,7 +287,20 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
         "hwtest" => Ok(CliCommand::HwTest),
 
         _ => {
-            let known_commands = ["info", "temps", "fans", "monitoring", "fan", "charge", "power", "kbd", "led", "daemon", "hwtest", "help"];
+            let known_commands = [
+                "info",
+                "temps",
+                "fans",
+                "monitoring",
+                "fan",
+                "charge",
+                "power",
+                "kbd",
+                "led",
+                "daemon",
+                "hwtest",
+                "help",
+            ];
             let mut best_match = None;
             let mut best_dist = usize::MAX;
             for k in known_commands {
@@ -291,7 +312,12 @@ pub fn parse_args(caps: Option<&Capabilities>) -> Result<CliCommand, ParseError>
             }
 
             if let Some(suggestion) = best_match {
-                parse_bail!(None, "{}\n\n{}", t!("err_unrecognized_cmd", cmd = cmd), t!("err_did_you_mean", suggestion = suggestion));
+                parse_bail!(
+                    None,
+                    "{}\n\n{}",
+                    t!("err_unrecognized_cmd", cmd = cmd),
+                    t!("err_did_you_mean", suggestion = suggestion)
+                );
             } else {
                 parse_bail!(None, "{}", t!("err_unrecognized_cmd", cmd = cmd));
             }

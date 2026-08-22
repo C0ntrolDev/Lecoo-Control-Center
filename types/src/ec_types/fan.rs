@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "t", content = "c")]
 pub enum FanMode {
     #[default]
-    Auto,           // Controlled by EC thermal tables
-    Full,           // 100% speed override
-    Turbo,          // Turbo mode (without safety)
-    Custom(u8),     // Custom PWM duty cycle
+    Auto, // Controlled by EC thermal tables
+    Full,       // 100% speed override
+    Turbo,      // Turbo mode (without safety)
+    Custom(u8), // Custom PWM duty cycle
 }
 
 /// Identifies the specific fan

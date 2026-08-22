@@ -3,7 +3,10 @@
 use anyhow::{Context, Result};
 use ipc::{DaemonWorker, IpcServer};
 use lecoo_types::{caps, settings::CurrentSettings, telemetry::TelemetryData};
-use std::{sync::{Mutex, OnceLock}, thread};
+use std::{
+    sync::{Mutex, OnceLock},
+    thread,
+};
 
 use crate::handlers::DaemonState;
 
@@ -23,10 +26,15 @@ fn resolve_profile(args: &[String], board: &str) -> Option<(&'static ec::BoardPr
     if let Some(i) = args.iter().position(|a| a == "--profile") {
         let id = args.get(i + 1)?;
         return match ec::by_id(id) {
-            Some(p) => { log::warn!("Forced board profile: {}", p.id); Some((p, true)) }
+            Some(p) => {
+                log::warn!("Forced board profile: {}", p.id);
+                Some((p, true))
+            }
             None => {
-                log::error!("Unknown profile id: {id}. Known: {}",
-                    ec::PROFILES.iter().map(|p| p.id).collect::<Vec<_>>().join(", "));
+                log::error!(
+                    "Unknown profile id: {id}. Known: {}",
+                    ec::PROFILES.iter().map(|p| p.id).collect::<Vec<_>>().join(", ")
+                );
                 None
             }
         };
@@ -59,9 +67,7 @@ fn process_ipc_connection(mut conn: DaemonWorker) {
                         if let Ok(state) = STATE.get().unwrap().try_lock() {
                             let _ = state.save();
                         } else {
-                            log::warn!(
-                                "Could not acquire lock to save state on connection reset"
-                            );
+                            log::warn!("Could not acquire lock to save state on connection reset");
                         }
                     }
                     break;
@@ -73,7 +79,7 @@ fn process_ipc_connection(mut conn: DaemonWorker) {
 
 /// Process system/service events
 fn process_service(rx_in_core: std::sync::mpsc::Receiver<services::InternalEvent>) {
-    use lecoo_types::ec_types::{PowerLedMode, BreathConfig};
+    use lecoo_types::ec_types::{BreathConfig, PowerLedMode};
     let ec = EC.get().unwrap();
 
     let read_and_save_state = |ec: &ec::EcDevice| {
@@ -151,8 +157,9 @@ fn main() -> Result<()> {
         let _ = rx_in_core.recv();
         thread::sleep(std::time::Duration::from_secs(2));
     } else {
-        println!("The daemon has been launched in manual mode! Please, run it as a service. Otherwise, it will not work properly.");
-        log::warn!("The daemon has been launched in manual mode! Please, run it as a service. Otherwise, it will not work properly.");
+        const MSG: &str = "The daemon has been launched in manual mode! Please, run it as a service. Otherwise, it will not work properly";
+        eprintln!("{}", MSG);
+        log::warn!("{}", MSG);
     }
 
     // Linux just start the service
@@ -174,26 +181,22 @@ fn main() -> Result<()> {
         }
         None => {
             if insecure_mode {
-                log::error!("--insecure requires an explicit --profile <id>. Known: {}",
-                    ec::PROFILES.iter().map(|p| p.id).collect::<Vec<_>>().join(", "));
+                log::error!(
+                    "--insecure requires an explicit --profile <id>. Known: {}",
+                    ec::PROFILES.iter().map(|p| p.id).collect::<Vec<_>>().join(", ")
+                );
             }
             None
         }
     };
 
     let Some((ec, forced_profile)) = device else {
-        let chip = ec::probe_chip_only()
-            .map(|(id1, id2, ver)| format!("IT{:02X}{:02X}-{:02X}", id1, id2, ver));
+        let chip =
+            ec::probe_chip_only().map(|(id1, id2, ver)| format!("IT{:02X}{:02X}-{:02X}", id1, id2, ver));
 
-        let _ = UNSUPPORTED.set(caps::UnsupportedInfo {
-            board: board.clone(),
-            chip: chip.clone(),
-        });
+        let _ = UNSUPPORTED.set(caps::UnsupportedInfo { board: board.clone(), chip: chip.clone() });
 
-        telemetry::send(TelemetryData::Unsupported {
-            host: services::get_host_info(),
-            chip,
-        });
+        telemetry::send(TelemetryData::Unsupported { host: services::get_host_info(), chip });
 
         log::error!("Unsupported motherboard: {board}. Serving Unsupported over IPC.");
         serve_forever(server.context("Failed to bind IPC server")?);
@@ -226,7 +229,7 @@ fn main() -> Result<()> {
     let _ = EC.set(ec);
     let _ = STATE.set(Mutex::new(daemon_state));
 
-    #[cfg(target_os="linux")]
+    #[cfg(target_os = "linux")]
     println!("Daemon started. For reading logs: \"journalctl -t lecoo-daemon -f\"");
 
     thread::Builder::new()

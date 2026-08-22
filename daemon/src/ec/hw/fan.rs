@@ -1,6 +1,6 @@
+use super::EcDevice;
 use anyhow::{Result, bail};
 use lecoo_types::ec_types::{FanIndex, FanMode};
-use super::EcDevice;
 
 pub fn apply_fan_mode(ec: &EcDevice, fan: &FanIndex, mode: &FanMode) -> Result<()> {
     let Some(spec) = ec.profile.fan(*fan) else {

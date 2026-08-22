@@ -1,10 +1,13 @@
 use interprocess::local_socket::{GenericNamespaced, Stream, ToNsName};
 use lecoo_types::{caps::*, ec_types::*, settings::CurrentSettings};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::{io::{self, Read, Write}, marker::PhantomData};
+use std::{
+    io::{self, Read, Write},
+    marker::PhantomData,
+};
 
-mod frame;
 mod client;
+mod frame;
 mod server;
 pub use client::IpcClient;
 pub use server::IpcServer;
@@ -76,7 +79,6 @@ pub enum IpcRequest {
     Unknown,
 }
 
-
 /// Responses sent FROM the Daemon TO the Client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", content = "c")]
@@ -88,13 +90,23 @@ pub enum IpcResponse {
     SystemInfo(SystemInfo),
 
     /// RPM readings for both fans
-    FanRpm { cpu: u16, gpu: u16 },
+    FanRpm {
+        cpu: u16,
+        gpu: u16,
+    },
 
     /// Temperature readings for CPU and System
-    Temps { cpu_c: u8, sys_c: u8 },
+    Temps {
+        cpu_c: u8,
+        sys_c: u8,
+    },
 
     /// Current battery charge limit (TODO: LEGACY)
-    ChargeLimit { min: u8, max: u8, current: u8 },
+    ChargeLimit {
+        min: u8,
+        max: u8,
+        current: u8,
+    },
 
     /// Current battery charge status
     ChargeStatus(ChargeStatus),
@@ -156,17 +168,13 @@ pub struct IpcConnection<Tx, Rx> {
 pub type DaemonClient = IpcConnection<IpcRequest, IpcResponse>;
 pub type DaemonWorker = IpcConnection<IpcResponse, IpcRequest>;
 
-
 impl<Tx, Rx> IpcConnection<Tx, Rx>
 where
     Tx: Serialize,
     Rx: DeserializeOwned,
 {
     pub fn new(stream: Stream) -> Self {
-        Self {
-            stream,
-            _marker: PhantomData,
-        }
+        Self { stream, _marker: PhantomData }
     }
 
     pub fn send(&mut self, msg: &Tx) -> io::Result<()> {
@@ -190,7 +198,7 @@ where
         if &resp[0..3] == b"ERR" {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
-                "Daemon rejected connection: IPC Protocol mismatch! Please update"
+                "Daemon rejected connection: IPC Protocol mismatch! Please update",
             ));
         } else if &resp[0..3] != b"OKK" {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid IPC handshake"));
@@ -222,9 +230,7 @@ where
 }
 
 fn get_socket_name() -> io::Result<interprocess::local_socket::Name<'static>> {
-    "lecoo_ctl_daemon"
-        .to_ns_name::<GenericNamespaced>()
-        .map(|n| n.into_owned())
+    "lecoo_ctl_daemon".to_ns_name::<GenericNamespaced>().map(|n| n.into_owned())
 }
 
 const fn parse_u8(s: &str) -> u8 {

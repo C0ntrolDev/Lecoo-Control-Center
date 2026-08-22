@@ -27,7 +27,10 @@ pub struct ParseError {
 
 /// Extracts a required positional argument, or returns a localized error.
 pub fn require_arg<'a>(
-    args: &'a [String], index: usize, label: &str, cmd_ctx: &Option<String>,
+    args: &'a [String],
+    index: usize,
+    label: &str,
+    cmd_ctx: &Option<String>,
 ) -> Result<&'a str, ParseError> {
     args.get(index).map(String::as_str).ok_or_else(|| ParseError {
         message: t!("err_missing_args", args = format!("  {label}")).into(),
@@ -37,7 +40,10 @@ pub fn require_arg<'a>(
 
 /// Extracts a positional argument and parses it as u8.
 pub fn parse_u8_arg(
-    args: &[String], index: usize, label: &str, cmd_ctx: &Option<String>,
+    args: &[String],
+    index: usize,
+    label: &str,
+    cmd_ctx: &Option<String>,
 ) -> Result<u8, ParseError> {
     let s = require_arg(args, index, label, cmd_ctx)?;
     s.parse().map_err(|_| ParseError {

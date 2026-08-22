@@ -58,9 +58,5 @@ pub fn store(conn: &Connection, version: &str, body: &[u8]) -> u16 {
 /// and may change freely.
 fn is_payload(value: &Value) -> bool {
     value.get("id").and_then(Value::as_str).is_some()
-        && value
-            .get("data")
-            .and_then(|data| data.get("t"))
-            .and_then(Value::as_str)
-            .is_some()
+        && value.get("data").and_then(|data| data.get("t")).and_then(Value::as_str).is_some()
 }

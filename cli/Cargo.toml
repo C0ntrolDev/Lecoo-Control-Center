@@ -9,6 +9,7 @@ edition = "2024"
 
 [dependencies]
 ipc = { path = "../ipc" }
+lecoo-types.workspace = true
 lexopt = "0.3"
 anyhow = "1.0"
 rust-i18n = "3"

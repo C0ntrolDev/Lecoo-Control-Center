@@ -1,17 +1,17 @@
 pub use super::EcDevice;
 
-mod getters;
-mod power_profile;
-mod kbd_backlight;
-mod led;
+mod dump;
 mod fan;
 mod flexicharger;
-mod dump;
+mod getters;
+mod kbd_backlight;
+mod led;
+mod power_profile;
 
-pub use power_profile::*;
+pub use dump::*;
+pub use fan::*;
+pub use flexicharger::*;
 pub use getters::*;
 pub use kbd_backlight::*;
 pub use led::*;
-pub use fan::*;
-pub use flexicharger::*;
-pub use dump::*;
+pub use power_profile::*;

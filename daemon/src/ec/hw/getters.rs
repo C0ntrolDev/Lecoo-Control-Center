@@ -1,7 +1,7 @@
-use anyhow::Result;
-use lecoo_types::{caps::SensorRole, ec_types::FanIndex};
 use super::EcDevice;
 use crate::ec::{REG_CHIP_ID1, REG_CHIP_ID2, REG_CHIP_VER};
+use anyhow::Result;
+use lecoo_types::{caps::SensorRole, ec_types::FanIndex};
 
 pub fn read_system_info(ec: &EcDevice) -> Result<(u8, u8, u8)> {
     ec.with_batch(|b| {
@@ -16,7 +16,9 @@ pub fn read_system_info(ec: &EcDevice) -> Result<(u8, u8, u8)> {
 pub fn read_fans_rpm(ec: &EcDevice) -> Result<(u16, u16)> {
     ec.with_batch(|b| {
         let read_one = |index: FanIndex| -> Result<u16> {
-            let Some(spec) = ec.profile.fan(index) else { return Ok(0) };
+            let Some(spec) = ec.profile.fan(index) else {
+                return Ok(0);
+            };
             let msb = b.read(spec.rpm_msb)? as u16;
             let lsb = b.read(spec.rpm_lsb)? as u16;
             Ok((msb << 8) | lsb)

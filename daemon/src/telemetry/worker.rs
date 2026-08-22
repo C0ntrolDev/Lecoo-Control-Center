@@ -15,9 +15,7 @@ const MAX_PENDING: usize = 32;
 
 pub(super) fn run(rx: Receiver<TelemetryData>) {
     let agent = ureq::Agent::new_with_config(
-        ureq::Agent::config_builder()
-            .timeout_global(Some(HTTP_TIMEOUT))
-            .build(),
+        ureq::Agent::config_builder().timeout_global(Some(HTTP_TIMEOUT)).build(),
     );
 
     let mut pending: VecDeque<TelemetryPayload> = VecDeque::new();
@@ -27,7 +25,9 @@ pub(super) fn run(rx: Receiver<TelemetryData>) {
             Ok(data) => queue(&mut pending, super::wrap(data)),
 
             Err(RecvTimeoutError::Timeout) => {
-                if super::is_enabled() && let Some(status) = collect_status() {
+                if super::is_enabled()
+                    && let Some(status) = collect_status()
+                {
                     queue(&mut pending, super::wrap(status));
                 }
             }

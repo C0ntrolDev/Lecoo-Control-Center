@@ -17,15 +17,15 @@ pub struct RawPortIo {
 impl RawPortIo {
     pub fn new() -> Result<Self> {
         unsafe {
-            let lib = Library::new("inpoutx64.dll")
-                .map_err(|_| anyhow::anyhow!("Failed to load inpoutx64.dll. Ensure it's placed next to daemon.exe."))?;
+            let lib = Library::new("inpoutx64.dll").map_err(|_| {
+                anyhow::anyhow!("Failed to load inpoutx64.dll. Ensure it's placed next to daemon.exe.")
+            })?;
 
-            let is_open_sym: Symbol<IsDriverOpenFn> = lib.get(b"IsInpOutDriverOpen\0")
-                    .context("IsInpOutDriverOpen export not found in DLL")?;
-            let out32_sym: Symbol<Out32Fn> = lib.get(b"Out32\0")
-                .context("Out32 export not found in DLL")?;
-            let inp32_sym: Symbol<Inp32Fn> = lib.get(b"Inp32\0")
-                .context("Inp32 export not found in DLL")?;
+            let is_open_sym: Symbol<IsDriverOpenFn> = lib
+                .get(b"IsInpOutDriverOpen\0")
+                .context("IsInpOutDriverOpen export not found in DLL")?;
+            let out32_sym: Symbol<Out32Fn> = lib.get(b"Out32\0").context("Out32 export not found in DLL")?;
+            let inp32_sym: Symbol<Inp32Fn> = lib.get(b"Inp32\0").context("Inp32 export not found in DLL")?;
 
             let is_open = *is_open_sym;
             let out32 = *out32_sym;
@@ -35,12 +35,7 @@ impl RawPortIo {
                 bail!("InpOut driver failed to open. Try running as Administrator.");
             }
 
-            Ok(Self {
-                _lib: lib,
-                is_open,
-                out32,
-                inp32,
-            })
+            Ok(Self { _lib: lib, is_open, out32, inp32 })
         }
     }
 
@@ -54,8 +49,6 @@ impl RawPortIo {
 
     #[inline(always)]
     pub fn inb(&self, port: u16) -> Result<u8> {
-        unsafe {
-            Ok((self.inp32)(port as i32))
-        }
+        unsafe { Ok((self.inp32)(port as i32)) }
     }
 }

@@ -37,8 +37,7 @@ impl EcDevice {
     /// whether to serve Unsupported over IPC.
     pub fn new(insecure_mode: bool) -> Result<Self> {
         let board = crate::services::get_board_name();
-        let profile = detect(&board)
-            .ok_or_else(|| anyhow::anyhow!("Unsupported motherboard: {board}"))?;
+        let profile = detect(&board).ok_or_else(|| anyhow::anyhow!("Unsupported motherboard: {board}"))?;
         log::info!("Detected motherboard {}.", profile.id);
         Self::new_with_profile(profile, insecure_mode)
     }
@@ -62,13 +61,19 @@ impl EcDevice {
         device.rt.hram_offset = device.detect_hram()?;
         log::info!(
             "Board {}, chip IT{:02X}{:02X}-{:02X}, HRAM window {:#06X}",
-            profile.id, chip.0, chip.1, chip.2, device.rt.hram_offset
+            profile.id,
+            chip.0,
+            chip.1,
+            chip.2,
+            device.rt.hram_offset
         );
         Ok(device)
     }
 
     #[inline]
-    pub fn hram_offset(&self) -> u16 { self.rt.hram_offset }
+    pub fn hram_offset(&self) -> u16 {
+        self.rt.hram_offset
+    }
 
     /// Temperature stays the primary signal; RSOC only breaks ties between
     /// several plausible windows, so this never rejects what used to work.
@@ -96,7 +101,8 @@ impl EcDevice {
         match candidates.len() {
             0 => bail!("Failed to detect HRAM window base address"),
             1 => Ok(candidates[0]),
-            _ => { // unlikely case!!!
+            _ => {
+                // unlikely case!!!
                 if let Some(off) = rsoc {
                     for &base in &candidates {
                         if matches!(self.read_abs(base + off), Ok(v) if v <= 100) {
@@ -151,7 +157,9 @@ fn probe_chip(io: &RawPortIo, insecure_mode: bool) -> Result<(u16, (u8, u8, u8))
 
     for &p in &probe_ports {
         last = p;
-        let Ok(id1) = raw_read(io, p, REG_CHIP_ID1) else { continue };
+        let Ok(id1) = raw_read(io, p, REG_CHIP_ID1) else {
+            continue;
+        };
         if matches!(id1, 0x55 | 0x81 | 0x85 | 0x89 | 0x90) {
             if id1 != 0x55 {
                 log::warn!("Found chip ID {:#X} at port {:#X}", id1, p);
@@ -165,7 +173,9 @@ fn probe_chip(io: &RawPortIo, insecure_mode: bool) -> Result<(u16, (u8, u8, u8))
 
     if insecure_mode {
         log::warn!("ITE chip not detected on any known port.");
-        log::warn!("INSECURE MODE: Proceeding blindly. Interacting with unknown hardware may cause system instability or damage!");
+        log::warn!(
+            "INSECURE MODE: Proceeding blindly. Interacting with unknown hardware may cause system instability or damage!"
+        );
         Ok((last, (0, 0, 0)))
     } else {
         bail!("ITE IT5570/IT8987 chip not found on any known port")

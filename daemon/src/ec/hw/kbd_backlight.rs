@@ -1,7 +1,7 @@
-use anyhow::{Result, bail};
-use lecoo_types::ec_types::KeyboardBacklightLevel;
 use super::EcDevice;
 use crate::ec::KbdOps;
+use anyhow::{Result, bail};
+use lecoo_types::ec_types::KeyboardBacklightLevel;
 
 pub fn read_keyboard_backlight(ec: &EcDevice) -> Result<KeyboardBacklightLevel> {
     use KeyboardBacklightLevel as L;

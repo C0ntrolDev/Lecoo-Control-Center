@@ -39,7 +39,9 @@ pub fn init(start_enabled: bool, client_id: u64) {
 /// Queues an event. Dropped silently when telemetry is off or before `init`,
 /// which is why callers never have to check either.
 pub fn send(data: TelemetryData) {
-    if is_enabled() && let Some(tx) = TELEMETRY_TX.get() {
+    if is_enabled()
+        && let Some(tx) = TELEMETRY_TX.get()
+    {
         let _ = tx.send(data);
     }
 }
@@ -73,9 +75,5 @@ fn uptime_s() -> u64 {
 }
 
 fn wrap(data: TelemetryData) -> TelemetryPayload {
-    TelemetryPayload {
-        id: TELEMETRY_ID.load(Ordering::Relaxed),
-        session: session_id(),
-        data,
-    }
+    TelemetryPayload { id: TELEMETRY_ID.load(Ordering::Relaxed), session: session_id(), data }
 }

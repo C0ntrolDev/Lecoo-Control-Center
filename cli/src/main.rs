@@ -16,7 +16,6 @@ use parser::{CliCommand, DaemonSubcommand};
 rust_i18n::i18n!("locales", fallback = "en");
 use rust_i18n::t;
 
-
 fn fetch_capabilities(client: &mut IpcClient) -> Option<Capabilities> {
     match client.request(&IpcRequest::DaemonCommand(DaemonCommand::GetCapabilities)) {
         Ok(IpcResponse::Capabilities(caps)) => Some(*caps),
@@ -35,7 +34,13 @@ fn main() -> Result<()> {
     let command = match parser::parse_args(caps.as_ref()) {
         Ok(cmd) => cmd,
         Err(e) => {
-            eprintln!("{}{}error:{} {}", help::err_bold(), help::err_bold_red(), help::err_reset(), e.message);
+            eprintln!(
+                "{}{}error:{} {}",
+                help::err_bold(),
+                help::err_bold_red(),
+                help::err_reset(),
+                e.message
+            );
             eprintln!();
             eprintln!("{}", help::get_usage(e.command.as_deref(), true));
             eprintln!();
@@ -75,12 +80,21 @@ fn main() -> Result<()> {
             let update_rate = (rate.unwrap_or(1.0) * 1000.0) as u64;
             println!("{}", t!("msg_monitoring_start", rate = update_rate));
             loop {
-                let IpcResponse::Temps { cpu_c: cpu, sys_c: system } = client.request(&IpcRequest::GetTemperatures)? else { unreachable!() };
-                let IpcResponse::FanRpm { cpu: cpu_fan, gpu: gpu_fan } = client.request(&IpcRequest::GetFansRPM)? else { unreachable!() };
+                let IpcResponse::Temps { cpu_c: cpu, sys_c: system } =
+                    client.request(&IpcRequest::GetTemperatures)?
+                else {
+                    unreachable!()
+                };
+                let IpcResponse::FanRpm { cpu: cpu_fan, gpu: gpu_fan } =
+                    client.request(&IpcRequest::GetFansRPM)?
+                else {
+                    unreachable!()
+                };
 
-                print!("\r{}      ", t!("msg_monitoring_loop",
-                    cpu = cpu, sys = system, cpu_f = cpu_fan, gpu_f = gpu_fan
-                ));
+                print!(
+                    "\r{}      ",
+                    t!("msg_monitoring_loop", cpu = cpu, sys = system, cpu_f = cpu_fan, gpu_f = gpu_fan)
+                );
                 io::stdout().flush().unwrap();
                 std::thread::sleep(std::time::Duration::from_millis(update_rate));
             }
@@ -99,11 +113,12 @@ fn main() -> Result<()> {
                 FanTarget::Cpu => IpcRequest::SetFanMode { fan: FanIndex::Cpu, mode },
                 FanTarget::Gpu => IpcRequest::SetFanMode { fan: FanIndex::Gpu, mode },
                 FanTarget::Both => {
-                    let _: IpcResponse = client.request(&IpcRequest::SetFanMode { fan: FanIndex::Cpu, mode })?;
+                    let _: IpcResponse =
+                        client.request(&IpcRequest::SetFanMode { fan: FanIndex::Cpu, mode })?;
                     IpcRequest::SetFanMode { fan: FanIndex::Gpu, mode }
                 }
             }
-        },
+        }
 
         CliCommand::Charge { intent } => match intent {
             Some(i) => IpcRequest::SetChargeIntent(i),
@@ -118,8 +133,12 @@ fn main() -> Result<()> {
         CliCommand::Led { mode } => IpcRequest::SetLedMode(mode),
 
         CliCommand::Daemon(sub) => match sub {
-            DaemonSubcommand::TelemetryEnable => IpcRequest::DaemonCommand(DaemonCommand::ActivateTelemetry(true)),
-            DaemonSubcommand::TelemetryDisable => IpcRequest::DaemonCommand(DaemonCommand::ActivateTelemetry(false)),
+            DaemonSubcommand::TelemetryEnable => {
+                IpcRequest::DaemonCommand(DaemonCommand::ActivateTelemetry(true))
+            }
+            DaemonSubcommand::TelemetryDisable => {
+                IpcRequest::DaemonCommand(DaemonCommand::ActivateTelemetry(false))
+            }
             DaemonSubcommand::TelemetryId => IpcRequest::DaemonCommand(DaemonCommand::GetTelemetryId),
             DaemonSubcommand::SettingsReset => IpcRequest::DaemonCommand(DaemonCommand::RestoreDefaults),
             DaemonSubcommand::SettingsRead => IpcRequest::DaemonCommand(DaemonCommand::GetSettings),
@@ -136,7 +155,10 @@ fn main() -> Result<()> {
         IpcResponse::Success => println!("{}", t!("msg_success")),
 
         IpcResponse::SystemInfo(info) => {
-            println!("{}", t!("resp_sys_info", chip = info.chip, rev = info.revision, offset = info.hram_offset : {:04X}, ver = info.daemon_version));
+            println!(
+                "{}",
+                t!("resp_sys_info", chip = info.chip, rev = info.revision, offset = info.hram_offset : {:04X}, ver = info.daemon_version)
+            );
         }
 
         IpcResponse::FanRpm { cpu, gpu } => {
@@ -165,7 +187,9 @@ fn main() -> Result<()> {
             let format_intent = |intent: &ChargeIntent| -> String {
                 match intent {
                     ChargeIntent::Full => t!("resp_charge_intent_full").to_string(),
-                    ChargeIntent::Preserve(Some(range)) => t!("resp_charge_intent_preserve", min = range.min, max = range.max).to_string(),
+                    ChargeIntent::Preserve(Some(range)) => {
+                        t!("resp_charge_intent_preserve", min = range.min, max = range.max).to_string()
+                    }
                     ChargeIntent::Preserve(None) => t!("resp_charge_intent_preserve_auto").to_string(),
                     ChargeIntent::Freeze => t!("resp_charge_intent_freeze").to_string(),
                 }

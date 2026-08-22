@@ -1,6 +1,6 @@
 use super::*;
-use lecoo_types::ec_types::{ChargeIntent, ChargeRange, FanIndex, PowerProfile};
 use lecoo_types::caps::SensorRole;
+use lecoo_types::ec_types::{ChargeIntent, ChargeRange, FanIndex, PowerProfile};
 
 #[rustfmt::skip]
 const PROFILE_MAP: &[(u8, PowerProfile)] = &[

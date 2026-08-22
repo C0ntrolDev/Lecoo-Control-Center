@@ -67,12 +67,7 @@ fn ingest(request: &mut Request, db: &Mutex<Connection>, wire: Wire) -> u16 {
     // stream, so the cap has to be enforced on the read itself. One byte past
     // the limit is enough to tell "at the limit" from "over it".
     let mut body = Vec::with_capacity(declared.min(MAX_BODY_SIZE));
-    if request
-        .as_reader()
-        .take(MAX_BODY_SIZE as u64 + 1)
-        .read_to_end(&mut body)
-        .is_err()
-    {
+    if request.as_reader().take(MAX_BODY_SIZE as u64 + 1).read_to_end(&mut body).is_err() {
         warn!("Failed to read request body");
         return 400;
     }

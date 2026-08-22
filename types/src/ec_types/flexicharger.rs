@@ -1,7 +1,10 @@
-use serde::{Deserialize, Serialize, de};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ChargeRange { pub min: u8, pub max: u8 }
+pub struct ChargeRange {
+    pub min: u8,
+    pub max: u8,
+}
 
 /// Fixed vocabulary. A new board adds a backend in the daemon, never a variant here.
 /// bincode encodes the variant index: append only.
@@ -19,11 +22,11 @@ pub enum ChargeIntent {
 /// todo: legacy, remove, make it as ChargePreset
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChargeLimit {
-    FullCapacity,       // 100%
-    HighCapacity,       // 95%
-    Balanced,           // 80%
-    MaximumLifespan,    // 60%
-    DeskMode,           // 40%
+    FullCapacity,    // 100%
+    HighCapacity,    // 95%
+    Balanced,        // 80%
+    MaximumLifespan, // 60%
+    DeskMode,        // 40%
 }
 impl ChargeLimit {
     pub fn as_percent(&self) -> (u8, u8) {
