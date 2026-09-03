@@ -18,6 +18,7 @@ use std::{
 
 const INPOUT_SERVICE_NAME: &str = "inpoutx64";
 const ERROR_SERVICE_DOES_NOT_EXIST: i32 = 1060;
+const ERROR_SERVICE_ALREADY_RUNNING: i32 = 1056;
 
 pub struct RawPortIo {
     _lib: Library,
@@ -81,13 +82,13 @@ impl RawPortIo {
                 return Ok(());
             }
             ServiceState::Stopped => {
-                service.start::<&str>(&[])?;
+                Self::start_service(&service)?;
                 Self::wait_until_running(&service)?;
                 return Ok(());
             }
             ServiceState::StopPending => {
                 Self::wait_until_stopped(&service)?;
-                service.start::<&str>(&[])?;
+                Self::start_service(&service)?;
                 Self::wait_until_running(&service)?;
                 return Ok(());
             }
@@ -139,6 +140,21 @@ impl RawPortIo {
                 state => {
                     bail!("inpoutx64 changed to unexpected state while stopping: {state:?}");
                 }
+            }
+        }
+    }
+
+    fn start_service(service: &Service) -> Result<()> {
+        match service.start::<&str>(&[]) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                if let windows_service::Error::Winapi(winapi_error) = &error {
+                    if winapi_error.raw_os_error() == Some(ERROR_SERVICE_ALREADY_RUNNING) {
+                        return Ok(());
+                    }
+                }
+
+                return Err(error.into());
             }
         }
     }
